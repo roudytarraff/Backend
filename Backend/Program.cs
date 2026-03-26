@@ -5,6 +5,8 @@ using TripPlanner.Api.Data;
 using TripPlanner.Api.Features.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Backend.Services.Crypto;
+using Backend.Services.Storage;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +20,8 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 {
     opt.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
+
+builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
 
 // JWT options
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()
@@ -54,6 +58,10 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+
+//Crypto
+builder.Services.AddScoped<IJoinPasswordCryptoService, JoinPasswordCryptoService>();
 
 var app = builder.Build();
 

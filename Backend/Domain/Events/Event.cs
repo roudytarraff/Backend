@@ -19,7 +19,7 @@ public sealed class Event
     public string Title { get; private set; } = null!;
 
     [MaxLength(4000)]
-    public string Description { get; private set; } = null!;
+    public string? Description { get; private set; } = null;
 
     [MaxLength(60)]
     public string EventType { get; private set; } = "General";
@@ -36,8 +36,7 @@ public sealed class Event
     public double DestinationLatitude { get; private set; }
 
     public double DestinationLongitude { get; private set; }
-
-    [MaxLength(2048)]
+    
     public string? ThumbnailUrl { get; private set; }
 
     // Owner is one of Organizers (by EventMemberId)
@@ -67,8 +66,8 @@ public sealed class Event
     [MaxLength(12)]
     public string JoinCode { get; private set; } = null!;
 
-    [MaxLength(500)]
-    public string JoinPasswordHash { get; private set; } = null!; // salt+hash in ONE string
+    [MaxLength(1000)]
+    public string JoinPasswordEncrypted { get; private set; } = null!;
 
     public bool IsJoinEnabled { get; private set; }
 
@@ -78,9 +77,9 @@ public sealed class Event
     string description,
     string eventType,
     DateTime startDate,
-    string joinPassword,
-    bool isJoinEnabled = true,
-    int joinCodeLength = 6)
+    string joinPasswordEncrypted,
+    string joinCode,
+    bool isJoinEnabled = true)
 {
     EventId = Guid.NewGuid();
 
@@ -106,8 +105,8 @@ public sealed class Event
     ChatRoom = new ChatRoom(EventId);
     VoiceChannel = new VoiceChannel(EventId, "Voice");
 
-    JoinCode = GenerateJoinCode(joinCodeLength);
-    JoinPasswordHash = HashJoinPassword(joinPassword);
+    JoinCode = Guard.Required(joinCode, nameof(JoinCode), 12);
+    JoinPasswordEncrypted = Guard.Required(joinPasswordEncrypted, nameof(joinPasswordEncrypted), 1000);
     IsJoinEnabled = isJoinEnabled;
 }
 
@@ -127,7 +126,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
 
         Guard.Ensure(!IsMember(actorUserId), "User is already a member.");
 
-        Guard.Ensure(VerifyJoinPassword(joinPassword, JoinPasswordHash), "Invalid join credentials.");
+        Guard.Ensure(!string.IsNullOrWhiteSpace(joinPassword), "Invalid join credentials.");
 
         Participants.Add(new Participant(EventId, actorUserId, mode));
 
@@ -135,12 +134,12 @@ public void SetOwnerOrganizerId(Guid organizerId)
         RecalculateEndDateFromSchedule();
     }
 
-    public void ChangeJoinPassword(Guid actorUserId, string newJoinPassword)
+    public void ChangeJoinPassword(Guid actorUserId, string newJoinPasswordEncrypted)
     {
-        EnsureOpen();
-        RequireOrganizer(actorUserId);
+    EnsureOpen();
+    RequireOrganizer(actorUserId);
 
-        JoinPasswordHash = HashJoinPassword(newJoinPassword);
+    JoinPasswordEncrypted = Guard.Required(newJoinPasswordEncrypted, nameof(newJoinPasswordEncrypted), 1000);
     }
 
     public string RotateJoinCode(Guid actorUserId, int joinCodeLength = 6)
@@ -192,7 +191,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
     {
         EnsureOpen();
         RequireOrganizer(actorUserId);
-        ThumbnailUrl = Guard.UrlOrNull(url, nameof(ThumbnailUrl), 2048);
+        ThumbnailUrl = url;
     }
 
     public void SetDestination(string name, double lat, double lng)
@@ -540,7 +539,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
 
     private Organizer RequireOrganizer(Guid actorUserId)
     {
-        var org = Organizers.FirstOrDefault(o => o.EventMemberId == actorUserId);
+        var org = Organizers.FirstOrDefault(o => o.UserId == actorUserId);
         if (org is null)
             throw new ForbiddenException("Organizer permission required.");
 
@@ -571,44 +570,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
     private bool IsMember(Guid userId)
         => Organizers.Any(o => o.UserId == userId) || Participants.Any(p => p.UserId == userId);
 
-    // ---------------- Join credentials internals ----------------
-    // Stored format: "<saltB64>.<hashB64>" in JoinPasswordHash (single column)
 
-    private static string HashJoinPassword(string password)
-    {
-        password = Guard.Required(password, "JoinPassword", 200);
-
-        byte[] salt = RandomNumberGenerator.GetBytes(16);
-        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
-            password: password,
-            salt: salt,
-            iterations: 100_000,
-            hashAlgorithm: HashAlgorithmName.SHA256,
-            outputLength: 32);
-
-        return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
-    }
-
-    private static bool VerifyJoinPassword(string password, string stored)
-    {
-        if (string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(stored))
-            return false;
-
-        var parts = stored.Split('.', 2);
-        if (parts.Length != 2) return false;
-
-        var salt = Convert.FromBase64String(parts[0]);
-        var storedHash = Convert.FromBase64String(parts[1]);
-
-        var computed = Rfc2898DeriveBytes.Pbkdf2(
-            password: password,
-            salt: salt,
-            iterations: 100_000,
-            hashAlgorithm: HashAlgorithmName.SHA256,
-            outputLength: 32);
-
-        return CryptographicOperations.FixedTimeEquals(computed, storedHash);
-    }
 
     private static string GenerateJoinCode(int length)
     {
@@ -626,4 +588,6 @@ public void SetOwnerOrganizerId(Guid organizerId)
 
         return new string(chars);
     }
+
+
 }

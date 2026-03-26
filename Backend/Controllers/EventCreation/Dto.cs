@@ -1,8 +1,7 @@
-using System;
+using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 
 namespace Backend.Controllers.EventCreation;
-
-using System.ComponentModel.DataAnnotations;
 
 public sealed class CreateEventRequest
 {
@@ -10,9 +9,9 @@ public sealed class CreateEventRequest
     [MaxLength(120)]
     public string Title { get; set; } = "";
 
-    [Required]
+    
     [MaxLength(4000)]
-    public string Description { get; set; } = "";
+    public string? Description { get; set; } = "";
 
     [Required]
     [MaxLength(60)]
@@ -22,20 +21,16 @@ public sealed class CreateEventRequest
 
     public TimeSpan StartTime { get; set; }
 
-    // Trip destination
     public string DestinationName { get; set; } = "";
-
     public double DestinationLatitude { get; set; }
-
     public double DestinationLongitude { get; set; }
 
-    public string? ThumbnailUrl { get; set; }
+    public string? ThumbnailFileKey { get; set; }
 
     public string JoinPassword { get; set; } = "";
 
     public List<EventDayRequest> Days { get; set; } = new();
 }
-
 
 public sealed class EventDayRequest
 {
@@ -45,7 +40,6 @@ public sealed class EventDayRequest
 
     public List<ActivityRequest> Activities { get; set; } = new();
 }
-
 
 public sealed class ActivityRequest
 {
@@ -63,11 +57,10 @@ public sealed class ActivityRequest
 
     public double Longitude { get; set; }
 
-    public string? ThumbnailUrl { get; set; }
+    public string? ThumbnailFileKey { get; set; }
 
     public List<ActivityStepRequest> Steps { get; set; } = new();
 }
-
 
 public sealed class ActivityStepRequest
 {
@@ -76,4 +69,13 @@ public sealed class ActivityStepRequest
     public string Description { get; set; } = "";
 
     public bool IsMandatory { get; set; }
+}
+
+public sealed class CreateEventMultipartRequest
+{
+    [FromForm(Name = "data")]
+    public string Data { get; set; } = "";
+
+    [FromForm]
+    public List<IFormFile> Files { get; set; } = new();
 }

@@ -10,6 +10,7 @@
     <!-- OpenAPI / Swagger -->
 
     <!-- PostgreSQL EF Core provider -->
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="MailKit" Version="4.15.1" />
     <PackageReference Include="Microsoft.OpenApi" Version="1.6.22" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
@@ -30,6 +31,9 @@
 
   <ItemGroup>
     <Folder Include="Controllers\EventCreation\" />
+    <Folder Include="Services\" />
+    <Folder Include="Services\Crypto\" />
+    <Folder Include="Services\Storage\" />
   </ItemGroup>
 
 </Project>

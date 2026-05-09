@@ -7,13 +7,15 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Backend.Services.Crypto;
 using Backend.Services.Storage;
+using Microsoft.OpenApi.Models;
 
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-//builder.Services.AddEndpointsApiExplorer();
-//builder.Services.AddSwaggerGen();
+builder.Services.AddSignalR();
+builder.Services.AddEndpointsApiExplorer();
+
 
 // PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(opt =>
@@ -57,7 +59,39 @@ builder.Services
         };
     });
 
+
+
 builder.Services.AddAuthorization();
+
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "WebApi", Version = "v1" });
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
+    });
+});
+
 
 
 //Crypto
@@ -65,8 +99,7 @@ builder.Services.AddScoped<IJoinPasswordCryptoService, JoinPasswordCryptoService
 
 var app = builder.Build();
 
-//app.UseSwagger();
-//app.UseSwaggerUI();
+
 
 app.UseHttpsRedirection();
 
@@ -76,5 +109,9 @@ app.UseMiddleware<ExceptionMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.UseSwagger();
+app.UseSwaggerUI();
+
 app.MapControllers();
+app.MapHub<Backend.Hubs.EventHub>("/api/events-hub");
 app.Run();

@@ -209,10 +209,26 @@ public void SetOwnerOrganizerId(Guid organizerId)
         Status = EventStatus.Cancelled;
     }
 
+    public void Start(Guid actorUserId)
+    {
+        EnsureOpen();
+        RequireOrganizer(actorUserId);
+        Guard.Ensure(Status == EventStatus.Draft, "Only draft events can be started.");
+        Status = EventStatus.Active;
+    }
+
     public void Complete(Guid actorUserId)
     {
         EnsureOpen();
         RequireOwner(actorUserId);
+        Status = EventStatus.Completed;
+    }
+
+    public void End(Guid actorUserId)
+    {
+        EnsureOpen();
+        RequireOrganizer(actorUserId);
+        Guard.Ensure(Status == EventStatus.Active, "Only active events can be ended.");
         Status = EventStatus.Completed;
     }
 

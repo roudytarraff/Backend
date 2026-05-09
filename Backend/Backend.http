@@ -1,6 +1,37 @@
 @Backend_HostAddress = http://localhost:5198
 
-GET {{Backend_HostAddress}}/weatherforecast/
-Accept: application/json
+### Register User
+POST {{Backend_HostAddress}}/api/auth/register
+Content-Type: application/json
 
-###
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john@example.com",
+  "password": "Test1234!"
+}
+
+### Login User
+POST {{Backend_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "Test1234!"
+}
+
+### Get User Events (requires JWT token from login)
+GET {{Backend_HostAddress}}/api/events/me
+Authorization: Bearer {token_here}
+
+### List all user events
+GET {{Backend_HostAddress}}/api/events
+Authorization: Bearer {token_here}
+
+### Get event details by ID
+GET {{Backend_HostAddress}}/api/events/{event_id}
+Authorization: Bearer {token_here}
+
+### Get event members
+GET {{Backend_HostAddress}}/api/events/{event_id}/members
+Authorization: Bearer {token_here}

@@ -1,5 +1,6 @@
 bin/
 obj/
 appsettings.Development.json
+appsettings.json
 Backend/bin/
 Backend/obj/

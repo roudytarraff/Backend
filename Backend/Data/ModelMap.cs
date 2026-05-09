@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TripPlanner.Api.Domain;
 using TripPlanner.Api.Domain.Chat;
 using TripPlanner.Api.Domain.Events;
+using TripPlanner.Api.Domain.Location;
 using TripPlanner.Api.Domain.Media;
 using TripPlanner.Api.Domain.Schedule;
 using TripPlanner.Api.Domain.Users;
@@ -108,6 +109,7 @@ public static class ModelMap
                 .HasValue<Participant>("Participant");
 
             b.HasIndex(x => new { x.EventId, x.UserId }).IsUnique();
+            b.HasIndex(x => new { x.UserId, x.Status });
 
             b.HasOne<User>()
                 .WithMany()
@@ -135,7 +137,7 @@ public static class ModelMap
 
             b.HasCheckConstraint(
                 "CK_Events_DateRange",
-                "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\""
+                "[EndDate] IS NULL OR [EndDate] >= [StartDate]"
             );
 
             b.HasIndex(e => e.JoinCode).IsUnique();
@@ -155,7 +157,7 @@ public static class ModelMap
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                     v => JsonSerializer.Deserialize<HashSet<Capability>>(v, (JsonSerializerOptions?)null) ?? new HashSet<Capability>()
                 )
-                .HasColumnType("jsonb")
+                .HasColumnType("nvarchar(max)")
                 .IsRequired();
 
             b.HasOne<EventMember>()
@@ -232,19 +234,40 @@ public static class ModelMap
         // Schedule
         // -------------------------------------------------------
 
-        modelBuilder.Entity<EventDay>().ToTable("EventDays");
+        modelBuilder.Entity<EventDay>(b =>
+        {
+            b.ToTable("EventDays");
+            b.HasIndex(x => new { x.EventId, x.Date, x.DayOrder });
+        });
 
         modelBuilder.Entity<Activity>(b =>
         {
             b.ToTable("Activities");
+            b.HasIndex(x => new { x.EventDayId, x.ActivityOrder });
 
             b.HasCheckConstraint(
                 "CK_Activities_TimeRange",
-                "\"StartTime\" IS NULL OR \"EndTime\" IS NULL OR \"EndTime\" >= \"StartTime\""
+                "[StartTime] IS NULL OR [EndTime] IS NULL OR [EndTime] >= [StartTime]"
             );
         });
 
         modelBuilder.Entity<ActivityStep>().ToTable("ActivitySteps");
+
+        // -------------------------------------------------------
+        // Location
+        // -------------------------------------------------------
+
+        modelBuilder.Entity<LocationSession>(b =>
+        {
+            b.ToTable("LocationSessions");
+            b.HasIndex(x => x.EventMemberId).IsUnique();
+        });
+
+        modelBuilder.Entity<LocationPoint>(b =>
+        {
+            b.ToTable("LocationPoints");
+            b.HasIndex(x => new { x.LocationSessionId, x.RecordedAt });
+        });
 
         // -------------------------------------------------------
         // Media

@@ -27,7 +27,17 @@ public sealed class AzureBlobStorageService : IBlobStorageService
     public async Task<string> UploadImageAsync(IFormFile file, string folder, CancellationToken ct)
     {
         ValidateImage(file);
+        return await UploadFileAsync(file, folder, ct);
+    }
 
+    public async Task<string> UploadMediaAsync(IFormFile file, string folder, CancellationToken ct)
+    {
+        ValidateMedia(file);
+        return await UploadFileAsync(file, folder, ct);
+    }
+
+    private async Task<string> UploadFileAsync(IFormFile file, string folder, CancellationToken ct)
+    {
         var extension = Path.GetExtension(file.FileName);
         var fileName = $"{folder}/{Guid.NewGuid()}{extension}";
         var blobClient = _container.GetBlobClient(fileName);
@@ -61,6 +71,25 @@ public sealed class AzureBlobStorageService : IBlobStorageService
             !file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Only image files are allowed.");
+        }
+    }
+
+    private static void ValidateMedia(IFormFile file)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file));
+
+        if (file.Length == 0)
+            throw new ArgumentException("Empty file.");
+
+        if (file.Length > 50 * 1024 * 1024)
+            throw new ArgumentException("Media too large. Max 50 MB.");
+
+        if (string.IsNullOrWhiteSpace(file.ContentType) ||
+            (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
+             !file.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("Only image and video files are allowed.");
         }
     }
 }

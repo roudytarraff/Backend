@@ -61,13 +61,20 @@ public sealed class Activity
 
     public void Rename(string title) => Title = Guard.Required(title, nameof(Title), 120);
 
+    public void UpdateDetails(string title, string type, int durationMinutes, string locationName, double latitude, double longitude)
+    {
+        Title = Guard.Required(title, nameof(Title), 120);
+        Type = Guard.Required(type, nameof(Type), 60);
+        UpdateDuration(durationMinutes);
+        UpdateLocation(locationName, latitude, longitude);
+    }
+
     // ✅ update duration (this is your "UpdateTime" new meaning)
     public void UpdateDuration(int durationMinutes)
     {
         DurationMinutes = Guard.EnsureDurationMinutes(durationMinutes);
 
-        // If ended and start exists, keep consistent end (optional)
-        if (Status == ActivityStatus.Ended && StartTime is not null)
+        if (StartTime is not null)
         {
             EndTime = StartTime.Value.AddMinutes(DurationMinutes);
         }
@@ -83,13 +90,22 @@ public sealed class Activity
         Longitude = lng;
     }
 
+    public void SetOrder(int order)
+        => ActivityOrder = Guard.NonNegative(order, nameof(ActivityOrder));
+
+    public void UpdateStartTime(DateTime? startTime)
+    {
+        StartTime = startTime;
+        EndTime = startTime?.AddMinutes(DurationMinutes);
+    }
+
     // ✅ status-driven timestamps
-    public void Start()
+    public void Start(DateTime startedAt)
     {
         Guard.Ensure(Status == ActivityStatus.NotStarted, "Activity can only be started from NotStarted.");
         Status = ActivityStatus.Ongoing;
-        StartTime = DateTime.UtcNow;
-        EndTime = null;
+        StartTime = startedAt;
+        EndTime = startedAt.AddMinutes(DurationMinutes);
     }
 
     public void End()
@@ -104,6 +120,15 @@ public sealed class Activity
         EndTime = StartTime.Value.AddMinutes(DurationMinutes);
     }
 
+    public void EndFromOrganizerProgress(DateTime endedAtUtc)
+    {
+        if (Status == ActivityStatus.Ended) return;
+
+        StartTime ??= endedAtUtc.AddMinutes(-DurationMinutes);
+        EndTime = StartTime.Value.AddMinutes(DurationMinutes);
+        Status = ActivityStatus.Ended;
+    }
+
     public void ResetToNotStarted()
     {
         Status = ActivityStatus.NotStarted;
@@ -115,6 +140,12 @@ public sealed class Activity
     {
         Guard.Ensure(step is not null, "Step is required.");
         Steps.Add(step);
+    }
+
+    public void ReplaceSteps(IEnumerable<ActivityStep> steps)
+    {
+        Steps.Clear();
+        Steps.AddRange(steps);
     }
 
     public void RemoveStep(Guid stepId)

@@ -7,7 +7,7 @@ public sealed class LocationSession
 {
     private LocationSession() { } // EF
 
-    public const int MaxPoints = 500;
+    public const int MaxPoints = 50;
 
     [Key]
     public Guid LocationSessionId { get; private set; }
@@ -49,11 +49,6 @@ public sealed class LocationSession
         Guard.Ensure(point is not null, "Point is required.");
 
         // ✅ cap storage at 500 (FIFO)
-        if (Points.Count >= MaxPoints)
-        {
-            Points.RemoveAt(0);
-        }
-
         Points.Add(point);
     }
 }

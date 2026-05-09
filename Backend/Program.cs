@@ -18,9 +18,18 @@ builder.Services.AddEndpointsApiExplorer();
 
 
 // PostgreSQL
+/*
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
     opt.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+});
+*/
+
+// Sql Server
+builder.Services.AddDbContext<AppDbContext>(opt =>
+{
+    opt.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"));
 });
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();

@@ -65,8 +65,6 @@ public sealed class EventManagementController : ControllerBase
             return Unauthorized();
 
         var events = await _db.Events
-            .Include(e => e.Organizers)
-            .Include(e => e.Participants)
             .AsNoTracking()
             .Where(e => e.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ||
                        e.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active))
@@ -103,13 +101,13 @@ public sealed class EventManagementController : ControllerBase
             return Unauthorized();
 
         var ev = await _db.Events
+            .AsNoTracking()
+            .AsSplitQuery()
             .Include(e => e.Organizers)
             .Include(e => e.Participants)
             .Include(e => e.EventDays)
                 .ThenInclude(d => d.Activities)
                     .ThenInclude(a => a.Steps)
-            .Include(e => e.ChatRoom)
-            .Include(e => e.VoiceChannel)
             .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
 
         if (ev == null)
@@ -156,6 +154,9 @@ public sealed class EventManagementController : ControllerBase
 
             if (req.StartDate.HasValue)
             {
+                if (ev.Status != EventStatus.Draft)
+                    return BadRequest("Event date can only be updated before the event starts.");
+
                 ev.Reschedule(userId.Value, DateTime.SpecifyKind(req.StartDate.Value, DateTimeKind.Utc));
             }
 

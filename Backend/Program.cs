@@ -17,10 +17,10 @@ builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 
 
-// PostgreSQL
+// Azure SQL Server
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
@@ -101,7 +101,10 @@ var app = builder.Build();
 
 
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // ✅ DomainException -> 400, ForbiddenException -> 403, unexpected -> 500
 app.UseMiddleware<ExceptionMiddleware>();

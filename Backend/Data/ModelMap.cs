@@ -135,7 +135,7 @@ public static class ModelMap
 
             b.HasCheckConstraint(
                 "CK_Events_DateRange",
-                "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\""
+                "[EndDate] IS NULL OR [EndDate] >= [StartDate]"
             );
 
             b.HasIndex(e => e.JoinCode).IsUnique();
@@ -155,7 +155,7 @@ public static class ModelMap
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                     v => JsonSerializer.Deserialize<HashSet<Capability>>(v, (JsonSerializerOptions?)null) ?? new HashSet<Capability>()
                 )
-                .HasColumnType("jsonb")
+                .HasColumnType("nvarchar(max)")
                 .IsRequired();
 
             b.HasOne<EventMember>()
@@ -240,7 +240,7 @@ public static class ModelMap
 
             b.HasCheckConstraint(
                 "CK_Activities_TimeRange",
-                "\"StartTime\" IS NULL OR \"EndTime\" IS NULL OR \"EndTime\" >= \"StartTime\""
+                "[StartTime] IS NULL OR [EndTime] IS NULL OR [EndTime] >= [StartTime]"
             );
         });
 

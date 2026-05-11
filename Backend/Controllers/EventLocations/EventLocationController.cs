@@ -69,7 +69,6 @@ public sealed class EventLocationController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
         await TrimLocationPoints(session.LocationSessionId, ct);
-        Console.WriteLine($"LOCATION POINT SAVED event={eventId} member={member.EventMemberId} lat={req.Latitude} lng={req.Longitude} point={point.LocationPointId}");
 
         await _hubContext.Clients.Group($"event-{eventId}").SendAsync("MemberLocationUpdated", new
         {

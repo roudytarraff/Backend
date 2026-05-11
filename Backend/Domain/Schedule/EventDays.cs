@@ -32,6 +32,9 @@ public sealed class EventDay
 
     public void Rename(string title) => Title = Guard.Required(title, nameof(Title), 120);
 
+    public void SetOrder(int order)
+        => DayOrder = Guard.NonNegative(order, nameof(DayOrder));
+
     public void AddActivity(Activity activity)
     {
         Guard.Ensure(activity is not null, "Activity is required.");

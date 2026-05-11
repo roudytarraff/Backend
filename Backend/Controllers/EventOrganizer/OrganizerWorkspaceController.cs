@@ -90,13 +90,44 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         var ev = await LoadFullEvent(eventId, ct);
         if (ev is null) return NotFound("Event not found.");
         if (!IsActiveOrganizer(ev, userId.Value)) return Forbid();
-        if (ev.Status != EventStatus.Draft) return BadRequest("Days can only be added before the event starts.");
+        if (ev.Status is EventStatus.Cancelled or EventStatus.Completed)
+            return BadRequest("Days cannot be added to a closed event.");
 
         var day = ev.AddEventDay(userId.Value, DateTime.SpecifyKind(req.Date.Date, DateTimeKind.Utc), req.Title);
         await _db.SaveChangesAsync(ct);
         await BroadcastDetailsChanged(eventId, "DayAdded");
 
         return Ok(new { day.EventDayId });
+    }
+
+    [HttpDelete("days/{eventDayId:guid}")]
+    public async Task<IActionResult> DeleteDay(Guid eventId, Guid eventDayId, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var ev = await LoadFullEvent(eventId, ct);
+        if (ev is null) return NotFound("Event not found.");
+        if (!IsActiveOrganizer(ev, userId.Value)) return Forbid();
+        if (ev.Status is EventStatus.Cancelled or EventStatus.Completed)
+            return BadRequest("Days cannot be deleted from a closed event.");
+        if (ev.EventDays.Count <= 1)
+            return BadRequest("The event needs at least one day.");
+
+        var day = ev.EventDays.FirstOrDefault(d => d.EventDayId == eventDayId);
+        if (day is null) return NotFound("Event day not found.");
+
+        ev.RemoveEventDay(userId.Value, eventDayId);
+
+        foreach (var orderedDay in ev.EventDays.OrderBy(d => d.Date).ThenBy(d => d.DayOrder).Select((dayItem, index) => new { dayItem, index }))
+        {
+            orderedDay.dayItem.SetOrder(orderedDay.index);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await BroadcastDetailsChanged(eventId, "DayDeleted");
+
+        return Ok();
     }
 
     [HttpPost("days/{eventDayId:guid}/activities")]
@@ -109,7 +140,8 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         var ev = await LoadFullEvent(eventId, ct);
         if (ev is null) return NotFound("Event not found.");
         if (!IsActiveOrganizer(ev, userId.Value)) return Forbid();
-        if (ev.Status != EventStatus.Draft) return BadRequest("Activities can only be added before the event starts.");
+        if (ev.Status is EventStatus.Cancelled or EventStatus.Completed)
+            return BadRequest("Activities cannot be added to a closed event.");
 
         var day = ev.EventDays.FirstOrDefault(d => d.EventDayId == eventDayId);
         if (day is null) return NotFound("Event day not found.");
@@ -119,6 +151,11 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(req.StartTime))
         {
+            if (ev.Status != EventStatus.Draft)
+            {
+                return BadRequest("Activity start time can only be set before the event starts.");
+            }
+
             activity.UpdateStartTime(CombineDayAndTime(day.Date, req.StartTime));
         }
 
@@ -326,7 +363,6 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         _db.LocationPoints.Add(point);
         await _db.SaveChangesAsync(ct);
         await TrimLocationPoints(session.LocationSessionId, ct);
-        Console.WriteLine($"LOCATION POINT SAVED event={eventId} member={member.EventMemberId} lat={req.Latitude} lng={req.Longitude} point={point.LocationPointId}");
 
         await _hubContext.Clients.Group($"event-{eventId}").SendAsync("MemberLocationUpdated", new
         {

@@ -29,7 +29,15 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
     opt.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"));
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null);
+            sqlOptions.CommandTimeout(60);
+        });
 });
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
@@ -60,11 +68,23 @@ builder.Services
 
         opt.Events = new JwtBearerEvents
         {
-        OnAuthenticationFailed = ctx =>
-        {
-            Console.WriteLine("JWT ERROR: " + ctx.Exception.Message);
-            return Task.CompletedTask;
-        }
+            OnMessageReceived = ctx =>
+            {
+                var accessToken = ctx.Request.Query["access_token"];
+                var path = ctx.HttpContext.Request.Path;
+                if (!string.IsNullOrWhiteSpace(accessToken) &&
+                    path.StartsWithSegments("/api/events-hub"))
+                {
+                    ctx.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            },
+            OnAuthenticationFailed = ctx =>
+            {
+                Console.WriteLine("JWT ERROR: " + ctx.Exception.Message);
+                return Task.CompletedTask;
+            }
         };
     });
 

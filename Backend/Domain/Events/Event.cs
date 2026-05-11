@@ -207,6 +207,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
         EnsureOpen();
         RequireOwner(actorUserId);
         Status = EventStatus.Cancelled;
+        IsLocationSharingActive = false;
     }
 
     public void Start(Guid actorUserId)
@@ -215,6 +216,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
         RequireOrganizer(actorUserId);
         Guard.Ensure(Status == EventStatus.Draft, "Only draft events can be started.");
         Status = EventStatus.Active;
+        IsLocationSharingActive = true;
     }
 
     public void Complete(Guid actorUserId)
@@ -222,6 +224,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
         EnsureOpen();
         RequireOwner(actorUserId);
         Status = EventStatus.Completed;
+        IsLocationSharingActive = false;
     }
 
     public void End(Guid actorUserId)
@@ -230,6 +233,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
         RequireOrganizer(actorUserId);
         Guard.Ensure(Status == EventStatus.Active, "Only active events can be ended.");
         Status = EventStatus.Completed;
+        IsLocationSharingActive = false;
     }
 
     // ---------------- Organizers / Owner ----------------

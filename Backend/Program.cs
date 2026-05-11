@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Backend.Services.Crypto;
 using Backend.Services.Storage;
+using Backend.Services.Voice;
 using Microsoft.OpenApi.Models;
 
 
@@ -41,6 +42,8 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 });
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
+builder.Services.Configure<LiveKitOptions>(builder.Configuration.GetSection("LiveKit"));
+builder.Services.AddSingleton<LiveKitTokenService>();
 
 // JWT options
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()

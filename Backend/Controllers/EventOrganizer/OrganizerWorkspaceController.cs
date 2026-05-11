@@ -151,11 +151,6 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(req.StartTime))
         {
-            if (ev.Status != EventStatus.Draft)
-            {
-                return BadRequest("Activity start time can only be set before the event starts.");
-            }
-
             activity.UpdateStartTime(CombineDayAndTime(day.Date, req.StartTime));
         }
 
@@ -237,11 +232,6 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(req.StartTime))
         {
-            if (result.Event!.Status != EventStatus.Draft)
-            {
-                return BadRequest("Activity start time can only be updated before the event starts.");
-            }
-
             var day = result.Event!.EventDays.FirstOrDefault(d => d.Activities.Any(a => a.ActivityId == activityId));
             if (day is null) return NotFound("Event day not found.");
             activity.UpdateStartTime(CombineDayAndTime(day.Date, req.StartTime));

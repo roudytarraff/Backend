@@ -80,7 +80,7 @@ public sealed class EventVoiceController : ControllerBase
             ? "Event member"
             : $"{user.FirstName} {user.LastName}".Trim();
         var roomName = $"event-{eventId}";
-        var identity = $"{eventId}:{member.EventMemberId}";
+        var identity = $"{eventId}:{member.EventMemberId}:{Guid.NewGuid():N}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {
             eventId,

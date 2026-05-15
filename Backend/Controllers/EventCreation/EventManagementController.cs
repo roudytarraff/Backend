@@ -120,7 +120,7 @@ public sealed class EventManagementController : ControllerBase
         if (!isMember)
             return Forbid();
 
-        return Ok(ToDetailsDto(ev));
+        return Ok(ToDetailsDto(ev, userId.Value));
     }
 
     [HttpPut("{eventId}")]
@@ -379,7 +379,7 @@ public sealed class EventManagementController : ControllerBase
         return Guid.TryParse(uid, out var userId) ? userId : null;
     }
 
-    private static EventDetailsDto ToDetailsDto(Event ev)
+    private static EventDetailsDto ToDetailsDto(Event ev, Guid userId)
     {
         var orderedDays = ev.EventDays
             .OrderBy(d => d.Date)
@@ -436,6 +436,13 @@ public sealed class EventManagementController : ControllerBase
             CreatedAt = ev.CreatedAt,
             JoinCode = ev.JoinCode,
             IsJoinEnabled = ev.IsJoinEnabled,
+            Role = ev.Organizers.Any(o => o.UserId == userId && o.EventMemberId == ev.OwnerOrganizerId && o.Status == MembershipStatus.Active) ? "Owner" :
+                   ev.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ? "Organizer" :
+                   ev.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active) ? "Participant" : "Unknown",
+            ParticipantMode = ev.Participants
+                .Where(p => p.UserId == userId && p.Status == MembershipStatus.Active)
+                .Select(p => (ParticipantMode?)p.Mode)
+                .FirstOrDefault(),
             OrganizersCount = ev.Organizers.Count(o => o.Status == MembershipStatus.Active),
             ParticipantsCount = ev.Participants.Count(p => p.Status == MembershipStatus.Active),
             Days = orderedDays
@@ -509,6 +516,8 @@ public sealed class EventDetailsDto
     public DateTime CreatedAt { get; set; }
     public string JoinCode { get; set; } = string.Empty;
     public bool IsJoinEnabled { get; set; }
+    public string Role { get; set; } = "Unknown";
+    public ParticipantMode? ParticipantMode { get; set; }
     public int OrganizersCount { get; set; }
     public int ParticipantsCount { get; set; }
     public List<EventDayDetailsDto> Days { get; set; } = new();

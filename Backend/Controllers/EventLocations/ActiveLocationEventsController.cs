@@ -35,6 +35,7 @@ public sealed class ActiveLocationEventsController : ControllerBase
             select new ActiveLocationEventDto
             {
                 EventId = member.EventId,
+                EventMemberId = member.EventMemberId,
                 Title = ev.Title,
                 Role = ev.OwnerOrganizerId == member.EventMemberId
                     ? "Owner"
@@ -56,6 +57,7 @@ public sealed class ActiveLocationEventsController : ControllerBase
 public sealed class ActiveLocationEventDto
 {
     public Guid EventId { get; set; }
+    public Guid EventMemberId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public bool IsLocationSharingActive { get; set; }

@@ -46,6 +46,10 @@ public sealed class EventExperienceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
         if (!IsMember(ev, userId.Value)) return Forbid();
+        if (IsPassiveParticipant(ev, userId.Value))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Passive participants cannot use event chat." });
+        }
 
         var memberIds = ev.Organizers.Cast<EventMember>()
             .Concat(ev.Participants)
@@ -136,6 +140,10 @@ public sealed class EventExperienceController : ControllerBase
             .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
 
         if (ev is null) return NotFound("Event not found.");
+        if (IsPassiveParticipant(ev, userId.Value))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Passive participants cannot send event chat messages." });
+        }
         if (ev.ChatRoom is null)
         {
             _db.ChatRooms.Add(new ChatRoom(eventId));
@@ -288,6 +296,9 @@ public sealed class EventExperienceController : ControllerBase
     private static bool IsMember(Event ev, Guid userId)
         => ev.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ||
            ev.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active);
+
+    private static bool IsPassiveParticipant(Event ev, Guid userId)
+        => ev.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active && p.Mode == ParticipantMode.Passive);
 
     private static string? FormatWindow(DateTime? start, DateTime? end)
     {

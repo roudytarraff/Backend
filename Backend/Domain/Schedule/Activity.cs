@@ -39,6 +39,11 @@ public sealed class Activity
     public double Latitude { get; private set; }
     public double Longitude { get; private set; }
 
+    public Guid? DriverParticipantId { get; private set; }
+
+    [MaxLength(160)]
+    public string? DriverDisplayName { get; private set; }
+
     public int ActivityOrder { get; private set; }
 
     public List<ActivityStep> Steps { get; private set; } = new();
@@ -88,6 +93,14 @@ public sealed class Activity
         LocationName = Guard.Required(name, nameof(LocationName), 120);
         Latitude = lat;
         Longitude = lng;
+    }
+
+    public void AssignDriver(Guid? driverParticipantId, string? displayName)
+    {
+        DriverParticipantId = driverParticipantId;
+        DriverDisplayName = string.IsNullOrWhiteSpace(displayName)
+            ? null
+            : Guard.Required(displayName, nameof(DriverDisplayName), 160);
     }
 
     public void SetOrder(int order)

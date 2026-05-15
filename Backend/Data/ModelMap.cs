@@ -59,6 +59,11 @@ public static class ModelMap
             .Property(x => x.ActivityId)
             .ValueGeneratedNever();
 
+        modelBuilder.Entity<Activity>(b =>
+        {
+            b.HasIndex(x => x.DriverParticipantId);
+        });
+
         modelBuilder.Entity<ActivityStep>()
             .Property(x => x.ActivityStepId)
             .ValueGeneratedNever();

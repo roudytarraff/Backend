@@ -257,6 +257,105 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         return Ok(new { activity.ActivityId });
     }
 
+    [HttpPut("activities/{activityId:guid}/driver")]
+    public async Task<IActionResult> AssignActivityDriver(Guid eventId, Guid activityId, [FromBody] AssignActivityDriverRequest req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var result = await LoadOrganizerActivity(eventId, activityId, userId.Value, ct);
+        if (result.Error is not null) return result.Error;
+
+        var activity = result.Activity!;
+        if (!IsTransportationActivity(activity))
+        {
+            return BadRequest("Drivers can only be assigned to transportation activities.");
+        }
+
+        if (req.DriverParticipantId is null)
+        {
+            activity.AssignDriver(null, null);
+        }
+        else
+        {
+            var participant = result.Event!.Participants.FirstOrDefault(p =>
+                p.EventMemberId == req.DriverParticipantId.Value &&
+                p.Status == MembershipStatus.Active);
+
+            if (participant is null) return NotFound("Driver participant not found.");
+            if (participant.Mode != ParticipantMode.Passive)
+            {
+                return BadRequest("The driver must be a passive participant.");
+            }
+
+            var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == participant.UserId, ct);
+            var driverName = user is null ? "Driver" : $"{user.FirstName} {user.LastName}".Trim();
+            activity.AssignDriver(participant.EventMemberId, driverName);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await BroadcastActivityChanged(eventId, activity, "ActivityUpdated");
+
+        return Ok(new { activity.ActivityId, activity.DriverParticipantId, activity.DriverDisplayName });
+    }
+
+    [HttpPost("activities/{activityId:guid}/driver-location")]
+    public async Task<IActionResult> UpdateActivityFromDriverLocation(Guid eventId, Guid activityId, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var result = await LoadOrganizerActivity(eventId, activityId, userId.Value, ct);
+        if (result.Error is not null) return result.Error;
+
+        var activity = result.Activity!;
+        if (!IsTransportationActivity(activity))
+        {
+            return BadRequest("Only transportation activities can use a driver location.");
+        }
+
+        if (activity.DriverParticipantId is null)
+        {
+            return BadRequest("Assign a driver to this transportation activity first.");
+        }
+
+        var driver = result.Event!.Participants.FirstOrDefault(p =>
+            p.EventMemberId == activity.DriverParticipantId.Value &&
+            p.Status == MembershipStatus.Active);
+        if (driver is null) return NotFound("Driver participant not found.");
+
+        var latestPoint = await _db.LocationPoints
+            .AsNoTracking()
+            .Where(p => _db.LocationSessions
+                .Where(s => s.EventMemberId == driver.EventMemberId)
+                .Select(s => s.LocationSessionId)
+                .Contains(p.LocationSessionId))
+            .OrderByDescending(p => p.RecordedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (latestPoint is null)
+        {
+            return BadRequest("Driver location is not available yet.");
+        }
+
+        var locationName = string.IsNullOrWhiteSpace(activity.DriverDisplayName)
+            ? "Driver current location"
+            : $"{activity.DriverDisplayName} current location";
+        activity.UpdateLocation(locationName, latestPoint.Latitude, latestPoint.Longitude);
+
+        await _db.SaveChangesAsync(ct);
+        await BroadcastActivityChanged(eventId, activity, "DriverLocationUpdated");
+
+        return Ok(new
+        {
+            activity.ActivityId,
+            activity.LocationName,
+            activity.Latitude,
+            activity.Longitude,
+            latestPoint.RecordedAt
+        });
+    }
+
     [HttpDelete("activities/{activityId:guid}")]
     public async Task<IActionResult> DeleteActivity(Guid eventId, Guid activityId, CancellationToken ct)
     {
@@ -490,6 +589,8 @@ public sealed class OrganizerWorkspaceController : ControllerBase
                             LocationName = a.LocationName,
                             Latitude = a.Latitude,
                             Longitude = a.Longitude,
+                            DriverParticipantId = a.DriverParticipantId,
+                            DriverDisplayName = a.DriverDisplayName,
                             ThumbnailUrl = a.ThumbnailUrl,
                             Steps = a.Steps
                                 .OrderBy(s => s.StepOrder)
@@ -544,6 +645,12 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
     private static bool IsActiveOrganizer(Event ev, Guid userId)
         => ev.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active);
+
+    private static bool IsTransportationActivity(Activity activity)
+        => string.Equals(activity.Type, "Transportation", StringComparison.OrdinalIgnoreCase) ||
+           activity.Title.Contains("bus", StringComparison.OrdinalIgnoreCase) ||
+           activity.Title.Contains("driver", StringComparison.OrdinalIgnoreCase) ||
+           activity.Title.Contains("transport", StringComparison.OrdinalIgnoreCase);
 
     private Task BroadcastActivityChanged(Guid eventId, Activity activity, string reason)
         => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
@@ -627,6 +734,11 @@ public sealed class UpdateOrganizerActivityRequest
     public IFormFile? CoverImage { get; set; }
 }
 
+public sealed class AssignActivityDriverRequest
+{
+    public Guid? DriverParticipantId { get; set; }
+}
+
 public sealed class StartOrganizerActivityRequest
 {
     public string? StartTime { get; set; }
@@ -703,6 +815,8 @@ public sealed class OrganizerActivityDto
     public string LocationName { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+    public Guid? DriverParticipantId { get; set; }
+    public string? DriverDisplayName { get; set; }
     public string? ThumbnailUrl { get; set; }
     public List<OrganizerActivityStepDto> Steps { get; set; } = new();
 }

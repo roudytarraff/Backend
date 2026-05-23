@@ -79,6 +79,13 @@ public sealed class EventManagementController : ControllerBase
                 DestinationName = e.DestinationName,
                 ThumbnailUrl = e.ThumbnailUrl,
                 CreatedAt = e.CreatedAt,
+                EventMemberId = e.Organizers
+                    .Where(o => o.UserId == userId && o.Status == MembershipStatus.Active)
+                    .Select(o => (Guid?)o.EventMemberId)
+                    .FirstOrDefault() ?? e.Participants
+                    .Where(p => p.UserId == userId && p.Status == MembershipStatus.Active)
+                    .Select(p => (Guid?)p.EventMemberId)
+                    .FirstOrDefault(),
                 Role = e.Organizers.Any(o => o.UserId == userId && o.EventMemberId == e.OwnerOrganizerId && o.Status == MembershipStatus.Active) ? "Owner" :
                        e.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ? "Organizer" :
                        e.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active) ? "Participant" : "Unknown",
@@ -496,6 +503,7 @@ public sealed class UserEventDto
     public string DestinationName { get; set; } = string.Empty;
     public string? ThumbnailUrl { get; set; }
     public DateTime CreatedAt { get; set; }
+    public Guid? EventMemberId { get; set; }
     public string Role { get; set; } = "Unknown"; // "Owner", "Organizer", "Participant"
     public ParticipantMode? ParticipantMode { get; set; }
 }

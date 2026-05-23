@@ -208,13 +208,13 @@ public sealed class EventOrganizerController : ControllerBase
         var organizer = ev.Organizers.FirstOrDefault(o => o.EventMemberId == memberId);
         if (organizer is not null)
         {
-            _db.Organizers.Remove(organizer);
+            organizer.Remove();
         }
         else
         {
             var participant = ev.Participants.FirstOrDefault(p => p.EventMemberId == memberId);
             if (participant is null) return NotFound("Member not found.");
-            _db.Participants.Remove(participant);
+            participant.Remove();
         }
 
         await _db.SaveChangesAsync(ct);

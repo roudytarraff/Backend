@@ -40,7 +40,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         ev.Start(userId.Value);
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "EventStarted");
 
         return Ok(new { ev.EventId, ev.Status });
     }
@@ -56,7 +56,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         ev.End(userId.Value);
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "EventEnded");
 
         return Ok(new { ev.EventId, ev.Status });
     }
@@ -84,7 +84,7 @@ public sealed class EventOrganizerController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "EventDetailsUpdated");
 
         return Ok(new
         {
@@ -164,7 +164,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         _db.Organizers.Add(new Organizer(eventId, userId));
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "MemberPromoted");
 
         return Ok();
     }
@@ -189,7 +189,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         _db.Participants.Add(new Participant(eventId, userId, ParticipantMode.Active));
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "MemberDemoted");
 
         return Ok();
     }
@@ -218,7 +218,7 @@ public sealed class EventOrganizerController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId);
+        await BroadcastDetailsChanged(eventId, "MemberRemoved");
 
         return Ok();
     }
@@ -235,10 +235,11 @@ public sealed class EventOrganizerController : ControllerBase
     private static bool IsOwner(Event ev, Guid userId)
         => ev.Organizers.Any(o => o.EventMemberId == ev.OwnerOrganizerId && o.UserId == userId && o.Status == MembershipStatus.Active);
 
-    private Task BroadcastDetailsChanged(Guid eventId)
+    private Task BroadcastDetailsChanged(Guid eventId, string reason = "EventDetailsUpdated")
         => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
         {
             EventId = eventId,
+            Reason = reason,
             UpdatedAt = DateTime.UtcNow
         });
 

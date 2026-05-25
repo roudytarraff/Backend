@@ -126,15 +126,54 @@ public sealed class EventVoiceController : ControllerBase
             p.Mode == ParticipantMode.Passive);
         if (driver is null) return NotFound("Driver participant not found.");
 
+        var callId = Guid.NewGuid();
+
         await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
             .Clients.Group($"event-{eventId}")
             .SendAsync("DriverCallRequested", new
             {
                 EventId = eventId,
                 req.ActivityId,
+                CallId = callId,
                 DriverParticipantId = driver.EventMemberId,
                 RequestedByMemberId = organizer.EventMemberId,
                 RequestedAt = DateTime.UtcNow
+            }, ct);
+
+        return Ok(new { callId });
+    }
+
+    [HttpPost("driver-call/respond")]
+    public async Task<IActionResult> RespondDriverCall(Guid eventId, [FromBody] DriverCallResponse req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var ev = await _db.Events
+            .AsNoTracking()
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev is null) return NotFound("Event not found.");
+
+        var driver = ev.Participants.FirstOrDefault(p =>
+            p.EventMemberId == req.DriverParticipantId &&
+            p.UserId == userId.Value &&
+            p.Status == MembershipStatus.Active &&
+            p.Mode == ParticipantMode.Passive);
+        if (driver is null) return Forbid();
+
+        await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
+            .Clients.Group($"event-{eventId}")
+            .SendAsync("DriverCallAnswered", new
+            {
+                EventId = eventId,
+                req.ActivityId,
+                req.CallId,
+                DriverParticipantId = driver.EventMemberId,
+                Accepted = req.Accepted,
+                AnsweredAt = DateTime.UtcNow
             }, ct);
 
         return Ok();
@@ -221,4 +260,12 @@ public sealed class DriverCallRequest
 {
     public Guid DriverParticipantId { get; set; }
     public Guid? ActivityId { get; set; }
+}
+
+public sealed class DriverCallResponse
+{
+    public Guid DriverParticipantId { get; set; }
+    public Guid? ActivityId { get; set; }
+    public Guid? CallId { get; set; }
+    public bool Accepted { get; set; }
 }

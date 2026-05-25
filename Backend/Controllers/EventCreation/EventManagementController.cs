@@ -190,6 +190,7 @@ public sealed class EventManagementController : ControllerBase
             await _hubContext.Clients.Group(groupName).SendAsync("EventDetailsUpdated", new
             {
                 ev.EventId,
+                Reason = "EventUpdated",
                 UpdatedAt = DateTime.UtcNow
             });
 
@@ -235,6 +236,7 @@ public sealed class EventManagementController : ControllerBase
             await _hubContext.Clients.Group(groupName).SendAsync("EventDetailsUpdated", new
             {
                 ev.EventId,
+                Reason = "EventCancelled",
                 UpdatedAt = DateTime.UtcNow
             });
 
@@ -326,6 +328,7 @@ public sealed class EventManagementController : ControllerBase
             await _hubContext.Clients.Group(groupName).SendAsync("EventDetailsUpdated", new
             {
                 EventId = eventId,
+                Reason = "OrganizerAdded",
                 UpdatedAt = DateTime.UtcNow
             });
 
@@ -369,6 +372,7 @@ public sealed class EventManagementController : ControllerBase
             await _hubContext.Clients.Group(groupName).SendAsync("EventDetailsUpdated", new
             {
                 EventId = eventId,
+                Reason = "ParticipantModeChanged",
                 UpdatedAt = DateTime.UtcNow
             });
 

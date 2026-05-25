@@ -18,6 +18,8 @@ namespace Backend.Controllers.EventExperience;
 [Authorize]
 public sealed class EventExperienceController : ControllerBase
 {
+    private const string DriverChatPrefix = "[[driver-chat:";
+
     private readonly AppDbContext _db;
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<EventHub> _hubContext;
@@ -77,7 +79,7 @@ public sealed class EventExperienceController : ControllerBase
             ? new List<ChatMessageDto>()
             : await _db.ChatMessages
                 .AsNoTracking()
-                .Where(m => m.ChatRoomId == ev.ChatRoom.ChatRoomId && !m.IsDeleted && memberIds.Contains(m.SentByEventMemberId))
+                .Where(m => m.ChatRoomId == ev.ChatRoom.ChatRoomId && !m.IsDeleted && memberIds.Contains(m.SentByEventMemberId) && !m.Content.StartsWith(DriverChatPrefix))
                 .OrderBy(m => m.SentAt)
                 .Take(150)
                 .Select(m => new ChatMessageDto
@@ -132,6 +134,7 @@ public sealed class EventExperienceController : ControllerBase
         var userId = GetUserIdFromClaims();
         if (userId is null) return Unauthorized();
         if (string.IsNullOrWhiteSpace(req.Content)) return BadRequest("Message is required.");
+        if (IsDriverChatContent(req.Content)) return BadRequest("Invalid message content.");
 
         var ev = await _db.Events
             .Include(e => e.ChatRoom)
@@ -179,6 +182,157 @@ public sealed class EventExperienceController : ControllerBase
         await _hubContext.Clients.Group($"event-{eventId}").SendAsync("ChatMessageReceived", new
         {
             EventId = eventId,
+            Message = dto
+        }, ct);
+
+        return Ok(dto);
+    }
+
+    [HttpGet("driver-chat/{driverParticipantId:guid}")]
+    public async Task<IActionResult> GetDriverChat(Guid eventId, Guid driverParticipantId, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var ev = await _db.Events
+            .AsNoTracking()
+            .Include(e => e.ChatRoom)
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev is null) return NotFound("Event not found.");
+
+        var driver = ev.Participants.FirstOrDefault(p =>
+            p.EventMemberId == driverParticipantId &&
+            p.Status == MembershipStatus.Active &&
+            p.Mode == ParticipantMode.Passive);
+        if (driver is null) return NotFound("Driver not found.");
+
+        var actor = GetDriverChatActor(ev, userId.Value, driverParticipantId);
+        if (actor is null) return Forbid();
+
+        var participantIds = ev.Organizers.Cast<EventMember>()
+            .Concat(new[] { driver })
+            .Where(m => m.Status == MembershipStatus.Active)
+            .Select(m => m.EventMemberId)
+            .ToList();
+
+        var userIds = ev.Organizers.Cast<EventMember>()
+            .Concat(new[] { driver })
+            .Where(m => m.Status == MembershipStatus.Active)
+            .Select(m => m.UserId)
+            .Distinct()
+            .ToList();
+
+        var users = await _db.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.UserId))
+            .ToDictionaryAsync(u => u.UserId, ct);
+
+        var members = ev.Organizers.Cast<EventMember>()
+            .Concat(new[] { driver })
+            .ToDictionary(m => m.EventMemberId, m => m);
+
+        var token = DriverChatToken(driverParticipantId);
+        var messages = ev.ChatRoom is null
+            ? new List<ChatMessageDto>()
+            : await _db.ChatMessages
+                .AsNoTracking()
+                .Where(m => m.ChatRoomId == ev.ChatRoom.ChatRoomId && !m.IsDeleted && participantIds.Contains(m.SentByEventMemberId) && m.Content.StartsWith(token))
+                .OrderBy(m => m.SentAt)
+                .Take(150)
+                .Select(m => new ChatMessageDto
+                {
+                    ChatMessageId = m.ChatMessageId,
+                    Type = "message",
+                    SenderMemberId = m.SentByEventMemberId,
+                    Content = m.Content,
+                    SentAt = m.SentAt
+                })
+                .ToListAsync(ct);
+
+        foreach (var message in messages)
+        {
+            message.Content = StripDriverChatToken(message.Content);
+            if (!members.TryGetValue(message.SenderMemberId!.Value, out var member)) continue;
+            users.TryGetValue(member.UserId, out var user);
+            message.SenderName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}";
+            message.SenderAvatarUrl = user?.ProfilePictureUrl;
+            message.IsMine = member.UserId == userId.Value;
+        }
+
+        return Ok(new
+        {
+            ev.EventId,
+            ev.Title,
+            DriverParticipantId = driverParticipantId,
+            MembersCount = participantIds.Count,
+            Messages = messages
+        });
+    }
+
+    [HttpPost("driver-chat/{driverParticipantId:guid}/messages")]
+    public async Task<IActionResult> SendDriverMessage(Guid eventId, Guid driverParticipantId, [FromBody] SendChatMessageRequest req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var content = req.Content?.Trim();
+        if (string.IsNullOrWhiteSpace(content)) return BadRequest("Message is required.");
+        if (IsDriverChatContent(content)) return BadRequest("Invalid message content.");
+
+        var token = DriverChatToken(driverParticipantId);
+        if (token.Length + content.Length > 2000)
+        {
+            return BadRequest("Message is too long.");
+        }
+
+        var ev = await _db.Events
+            .Include(e => e.ChatRoom)
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev is null) return NotFound("Event not found.");
+
+        var driver = ev.Participants.FirstOrDefault(p =>
+            p.EventMemberId == driverParticipantId &&
+            p.Status == MembershipStatus.Active &&
+            p.Mode == ParticipantMode.Passive);
+        if (driver is null) return NotFound("Driver not found.");
+
+        var sender = GetDriverChatActor(ev, userId.Value, driverParticipantId);
+        if (sender is null) return Forbid();
+
+        if (ev.ChatRoom is null)
+        {
+            _db.ChatRooms.Add(new ChatRoom(eventId));
+            await _db.SaveChangesAsync(ct);
+            await _db.Entry(ev).Reference(e => e.ChatRoom).LoadAsync(ct);
+        }
+
+        var msg = new ChatMessage(ev.ChatRoom!.ChatRoomId, sender.EventMemberId, token + content);
+        _db.ChatMessages.Add(msg);
+        await _db.SaveChangesAsync(ct);
+
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId.Value, ct);
+        var dto = new ChatMessageDto
+        {
+            ChatMessageId = msg.ChatMessageId,
+            Type = "message",
+            SenderMemberId = sender.EventMemberId,
+            SenderName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}",
+            SenderAvatarUrl = user?.ProfilePictureUrl,
+            Content = content,
+            SentAt = msg.SentAt,
+            IsMine = true
+        };
+
+        await _hubContext.Clients.Group($"event-{eventId}").SendAsync("DriverChatMessageReceived", new
+        {
+            EventId = eventId,
+            DriverParticipantId = driverParticipantId,
             Message = dto
         }, ct);
 
@@ -299,6 +453,31 @@ public sealed class EventExperienceController : ControllerBase
 
     private static bool IsPassiveParticipant(Event ev, Guid userId)
         => ev.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active && p.Mode == ParticipantMode.Passive);
+
+    private static EventMember? GetDriverChatActor(Event ev, Guid userId, Guid driverParticipantId)
+    {
+        var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId && o.Status == MembershipStatus.Active);
+        if (organizer is not null) return organizer;
+
+        return ev.Participants.FirstOrDefault(p =>
+            p.EventMemberId == driverParticipantId &&
+            p.UserId == userId &&
+            p.Status == MembershipStatus.Active &&
+            p.Mode == ParticipantMode.Passive);
+    }
+
+    private static string DriverChatToken(Guid driverParticipantId)
+        => $"{DriverChatPrefix}{driverParticipantId:N}]]";
+
+    private static bool IsDriverChatContent(string? content)
+        => content?.StartsWith(DriverChatPrefix, StringComparison.Ordinal) == true;
+
+    private static string StripDriverChatToken(string content)
+    {
+        if (!IsDriverChatContent(content)) return content;
+        var tokenEnd = content.IndexOf("]]", StringComparison.Ordinal);
+        return tokenEnd < 0 ? content : content[(tokenEnd + 2)..];
+    }
 
     private static string? FormatWindow(DateTime? start, DateTime? end)
     {

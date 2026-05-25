@@ -412,6 +412,8 @@ public sealed class EventManagementController : ControllerBase
                         Latitude = activity.Latitude,
                         Longitude = activity.Longitude,
                         ThumbnailUrl = activity.ThumbnailUrl,
+                        DriverParticipantId = activity.DriverParticipantId,
+                        DriverDisplayName = activity.DriverDisplayName,
                         Steps = activity.Steps
                             .OrderBy(s => s.StepOrder)
                             .Select(step => new ActivityStepDetailsDto
@@ -443,6 +445,11 @@ public sealed class EventManagementController : ControllerBase
             CreatedAt = ev.CreatedAt,
             JoinCode = ev.JoinCode,
             IsJoinEnabled = ev.IsJoinEnabled,
+            EventMemberId = ev.Organizers.Cast<EventMember>()
+                .Concat(ev.Participants)
+                .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
+                .Select(m => (Guid?)m.EventMemberId)
+                .FirstOrDefault(),
             Role = ev.Organizers.Any(o => o.UserId == userId && o.EventMemberId == ev.OwnerOrganizerId && o.Status == MembershipStatus.Active) ? "Owner" :
                    ev.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ? "Organizer" :
                    ev.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active) ? "Participant" : "Unknown",
@@ -524,6 +531,7 @@ public sealed class EventDetailsDto
     public DateTime CreatedAt { get; set; }
     public string JoinCode { get; set; } = string.Empty;
     public bool IsJoinEnabled { get; set; }
+    public Guid? EventMemberId { get; set; }
     public string Role { get; set; } = "Unknown";
     public ParticipantMode? ParticipantMode { get; set; }
     public int OrganizersCount { get; set; }
@@ -553,6 +561,8 @@ public sealed class ActivityDetailsDto
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ThumbnailUrl { get; set; }
+    public Guid? DriverParticipantId { get; set; }
+    public string? DriverDisplayName { get; set; }
     public List<ActivityStepDetailsDto> Steps { get; set; } = new();
 }
 

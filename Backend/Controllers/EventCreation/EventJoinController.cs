@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Backend.Services.Crypto;
+using Backend.Services.Billing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,11 +18,13 @@ public sealed class EventJoinController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IJoinPasswordCryptoService _crypto;
+    private readonly PlanLimitService _plans;
 
-    public EventJoinController(AppDbContext db, IJoinPasswordCryptoService crypto)
+    public EventJoinController(AppDbContext db, IJoinPasswordCryptoService crypto, PlanLimitService plans)
     {
         _db = db;
         _crypto = crypto;
+        _plans = plans;
     }
 
     [HttpPost("join")]
@@ -69,6 +72,7 @@ public sealed class EventJoinController : ControllerBase
         var inactiveParticipant = ev.Participants.FirstOrDefault(p => p.UserId == userId.Value);
         if (inactiveParticipant is not null)
         {
+            await _plans.EnsureParticipantCapacity(_db, ev.EventId, ct);
             inactiveParticipant.Activate();
             inactiveParticipant.SetMode(req.Mode);
             await _db.SaveChangesAsync(ct);
@@ -84,6 +88,7 @@ public sealed class EventJoinController : ControllerBase
         var inactiveOrganizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value);
         if (inactiveOrganizer is not null)
         {
+            await _plans.EnsureParticipantCapacity(_db, ev.EventId, ct);
             await _db.Database.ExecuteSqlInterpolatedAsync($"""
                 UPDATE [EventMembers]
                 SET [MemberType] = N'Participant', [Status] = {(int)MembershipStatus.Active}, [Mode] = {(int)req.Mode}
@@ -98,6 +103,7 @@ public sealed class EventJoinController : ControllerBase
             });
         }
 
+        await _plans.EnsureParticipantCapacity(_db, ev.EventId, ct);
         ev.JoinWithCredentials(userId.Value, req.JoinPassword, req.Mode);
 
         await _db.SaveChangesAsync(ct);

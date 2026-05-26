@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Backend.Services.Billing;
 using Backend.Services.Voice;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,11 +18,13 @@ public sealed class EventVoiceController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly LiveKitTokenService _liveKit;
+    private readonly PlanLimitService _plans;
 
-    public EventVoiceController(AppDbContext db, LiveKitTokenService liveKit)
+    public EventVoiceController(AppDbContext db, LiveKitTokenService liveKit, PlanLimitService plans)
     {
         _db = db;
         _liveKit = liveKit;
+        _plans = plans;
     }
 
     [HttpPost("token")]
@@ -66,6 +69,7 @@ public sealed class EventVoiceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
         if (ev.Status != EventStatus.Active) return BadRequest("Voice is available only while the event is active.");
+        await _plans.EnsureEventVoiceAllowed(_db, eventId, ct);
         if (member is Participant { Mode: ParticipantMode.Passive })
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Passive participants cannot join event walkie talkie." });
@@ -117,6 +121,7 @@ public sealed class EventVoiceController : ControllerBase
             .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
 
         if (ev is null) return NotFound("Event not found.");
+        await _plans.EnsureDriverCallsAllowed(_db, eventId, ct);
         var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value && o.Status == MembershipStatus.Active);
         if (organizer is null) return Forbid();
 
@@ -233,6 +238,7 @@ public sealed class EventVoiceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
         if (ev.Status != EventStatus.Active) return BadRequest("Driver calls are available only while the event is active.");
+        await _plans.EnsureDriverCallsAllowed(_db, eventId, ct);
 
         var caller = ev.Organizers.Cast<EventMember>().Concat(ev.Participants).FirstOrDefault(m =>
             m.UserId == userId.Value &&

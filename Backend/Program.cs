@@ -6,6 +6,7 @@ using TripPlanner.Api.Features.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Backend.Services.Crypto;
+using Backend.Services.Billing;
 using Backend.Services.Storage;
 using Backend.Services.Voice;
 using Microsoft.OpenApi.Models;
@@ -42,6 +43,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 });
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
+builder.Services.AddScoped<PlanLimitService>();
 builder.Services.Configure<LiveKitOptions>(builder.Configuration.GetSection("LiveKit"));
 builder.Services.AddSingleton<LiveKitTokenService>();
 
@@ -131,7 +133,11 @@ builder.Services.AddScoped<IJoinPasswordCryptoService, JoinPasswordCryptoService
 
 var app = builder.Build();
 
-
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
 
 app.UseHttpsRedirection();
 

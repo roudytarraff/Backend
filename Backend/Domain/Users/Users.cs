@@ -23,6 +23,15 @@ public sealed class User
     public string? ProfilePictureUrl { get; private set; }
 
     public AccountStatus AccountStatus { get; private set; }
+    public SubscriptionPlan SubscriptionPlan { get; private set; } = SubscriptionPlan.Free;
+    public DateTime? PlusExpiresAtUtc { get; private set; }
+    [MaxLength(30)]
+    public string? BillingPlatform { get; private set; }
+    [MaxLength(120)]
+    public string? BillingProductId { get; private set; }
+    [MaxLength(256)]
+    public string? BillingTransactionId { get; private set; }
+    public DateTime? BillingUpdatedAtUtc { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
     public string? EmailVerificationCodeHash { get; set; }
@@ -54,6 +63,25 @@ public sealed class User
 
     public void Activate() => AccountStatus = AccountStatus.Active;
     public void Deactivate() => AccountStatus = AccountStatus.Deactivated;
+
+    public void ActivatePlus(string platform, string productId, string transactionId, DateTime expiresAtUtc)
+    {
+        Guard.Ensure(expiresAtUtc > DateTime.UtcNow, "Plus expiry must be in the future.");
+
+        SubscriptionPlan = SubscriptionPlan.Plus;
+        PlusExpiresAtUtc = expiresAtUtc;
+        BillingPlatform = Guard.Required(platform, nameof(platform), 30);
+        BillingProductId = Guard.Required(productId, nameof(productId), 120);
+        BillingTransactionId = Guard.Required(transactionId, nameof(transactionId), 256);
+        BillingUpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void RevertToFree()
+    {
+        SubscriptionPlan = SubscriptionPlan.Free;
+        PlusExpiresAtUtc = null;
+        BillingUpdatedAtUtc = DateTime.UtcNow;
+    }
 
     public void UpdateProfile(string firstName, string lastName)
     {

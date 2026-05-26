@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Backend.Services.Billing;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,15 +19,18 @@ public sealed class EventOrganizerController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<Hubs.EventHub> _hubContext;
+    private readonly PlanLimitService _plans;
 
     public EventOrganizerController(
         AppDbContext db,
         IBlobStorageService blobStorage,
-        IHubContext<Hubs.EventHub> hubContext)
+        IHubContext<Hubs.EventHub> hubContext,
+        PlanLimitService plans)
     {
         _db = db;
         _blobStorage = blobStorage;
         _hubContext = hubContext;
+        _plans = plans;
     }
 
     [HttpPost("start")]
@@ -37,6 +41,11 @@ public sealed class EventOrganizerController : ControllerBase
 
         var ev = await LoadEventWithMembers(eventId, ct);
         if (ev is null) return NotFound("Event not found.");
+
+        if (ev.Status == EventStatus.Draft)
+        {
+            await _plans.EnsureCanPublishEvent(_db, userId.Value, ct);
+        }
 
         ev.Start(userId.Value);
         await _db.SaveChangesAsync(ct);

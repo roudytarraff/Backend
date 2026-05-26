@@ -30,6 +30,7 @@ public sealed class Event
 
     public EventStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public DateTime? PublishedAtUtc { get; private set; }
 
     public string DestinationName { get; private set; }
 
@@ -216,6 +217,7 @@ public void SetOwnerOrganizerId(Guid organizerId)
         RequireOrganizer(actorUserId);
         Guard.Ensure(Status == EventStatus.Draft, "Only draft events can be started.");
         Status = EventStatus.Active;
+        PublishedAtUtc ??= DateTime.UtcNow;
         IsLocationSharingActive = true;
     }
 

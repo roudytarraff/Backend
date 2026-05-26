@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Backend.Hubs;
+using Backend.Services.Billing;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,12 +24,14 @@ public sealed class EventExperienceController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<EventHub> _hubContext;
+    private readonly PlanLimitService _plans;
 
-    public EventExperienceController(AppDbContext db, IBlobStorageService blobStorage, IHubContext<EventHub> hubContext)
+    public EventExperienceController(AppDbContext db, IBlobStorageService blobStorage, IHubContext<EventHub> hubContext, PlanLimitService plans)
     {
         _db = db;
         _blobStorage = blobStorage;
         _hubContext = hubContext;
+        _plans = plans;
     }
 
     [HttpGet("chat")]
@@ -193,6 +196,7 @@ public sealed class EventExperienceController : ControllerBase
     {
         var userId = GetUserIdFromClaims();
         if (userId is null) return Unauthorized();
+        await _plans.EnsureDriverCallsAllowed(_db, eventId, ct);
 
         var ev = await _db.Events
             .AsNoTracking()
@@ -278,6 +282,7 @@ public sealed class EventExperienceController : ControllerBase
     {
         var userId = GetUserIdFromClaims();
         if (userId is null) return Unauthorized();
+        await _plans.EnsureDriverCallsAllowed(_db, eventId, ct);
 
         var content = req.Content?.Trim();
         if (string.IsNullOrWhiteSpace(content)) return BadRequest("Message is required.");

@@ -103,7 +103,7 @@ public sealed class PlanLimitService
         var owner = await db.Users.AsNoTracking().FirstAsync(u => u.UserId == ownerUserId, ct);
         var limits = GetLimits(owner);
 
-        Guard.Ensure(limits.DriverCallsEnabled, "Driver calls are available with TripMate Plus.");
+        Guard.Ensure(limits.DriverCallsEnabled, "Driver calls and driver chat are available with TripMate Plus.");
     }
 
     private static async Task<int> CountPublishedEventsThisMonth(AppDbContext db, Guid ownerUserId, DateTime monthStartUtc, CancellationToken ct)

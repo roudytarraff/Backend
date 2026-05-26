@@ -120,11 +120,9 @@ public sealed class EventVoiceController : ControllerBase
         var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value && o.Status == MembershipStatus.Active);
         if (organizer is null) return Forbid();
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == req.DriverParticipantId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
-        if (driver is null) return NotFound("Driver participant not found.");
+        var driver = FindActiveMember(ev, req.DriverParticipantId);
+        if (driver is null) return NotFound("Driver not found.");
+        if (driver.EventMemberId == organizer.EventMemberId) return BadRequest("You cannot call yourself as the driver.");
 
         var callId = Guid.NewGuid();
 
@@ -157,11 +155,8 @@ public sealed class EventVoiceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == req.DriverParticipantId &&
-            p.UserId == userId.Value &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
+        var driver = FindActiveMember(ev, req.DriverParticipantId);
+        if (driver?.UserId != userId.Value) driver = null;
         if (driver is null) return Forbid();
 
         await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
@@ -196,11 +191,8 @@ public sealed class EventVoiceController : ControllerBase
         var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value && o.Status == MembershipStatus.Active);
         if (organizer is null) return Forbid();
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == req.DriverParticipantId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
-        if (driver is null) return NotFound("Driver participant not found.");
+        var driver = FindActiveMember(ev, req.DriverParticipantId);
+        if (driver is null) return NotFound("Driver not found.");
 
         await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
             .Clients.Group($"event-{eventId}")
@@ -246,11 +238,8 @@ public sealed class EventVoiceController : ControllerBase
             m.Status == MembershipStatus.Active);
         if (caller is null) return Forbid();
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == req.DriverParticipantId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
-        if (driver is null) return NotFound("Driver participant not found.");
+        var driver = FindActiveMember(ev, req.DriverParticipantId);
+        if (driver is null) return NotFound("Driver not found.");
 
         var callerIsOrganizer = caller is Organizer;
         var callerIsDriver = caller.EventMemberId == driver.EventMemberId;
@@ -293,6 +282,11 @@ public sealed class EventVoiceController : ControllerBase
         var uid = User.FindFirstValue("uid");
         return Guid.TryParse(uid, out var userId) ? userId : null;
     }
+
+    private static EventMember? FindActiveMember(Event ev, Guid eventMemberId)
+        => ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .FirstOrDefault(m => m.EventMemberId == eventMemberId && m.Status == MembershipStatus.Active);
 }
 
 public sealed class DriverCallRequest

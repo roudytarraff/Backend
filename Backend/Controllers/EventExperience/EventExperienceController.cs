@@ -203,23 +203,21 @@ public sealed class EventExperienceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == driverParticipantId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
+        var driver = FindActiveMember(ev, driverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
 
         var actor = GetDriverChatActor(ev, userId.Value, driverParticipantId);
         if (actor is null) return Forbid();
 
         var participantIds = ev.Organizers.Cast<EventMember>()
-            .Concat(new[] { driver })
+            .Append(driver)
             .Where(m => m.Status == MembershipStatus.Active)
             .Select(m => m.EventMemberId)
+            .Distinct()
             .ToList();
 
         var userIds = ev.Organizers.Cast<EventMember>()
-            .Concat(new[] { driver })
+            .Append(driver)
             .Where(m => m.Status == MembershipStatus.Active)
             .Select(m => m.UserId)
             .Distinct()
@@ -231,8 +229,10 @@ public sealed class EventExperienceController : ControllerBase
             .ToDictionaryAsync(u => u.UserId, ct);
 
         var members = ev.Organizers.Cast<EventMember>()
-            .Concat(new[] { driver })
-            .ToDictionary(m => m.EventMemberId, m => m);
+            .Append(driver)
+            .Where(m => m.Status == MembershipStatus.Active)
+            .GroupBy(m => m.EventMemberId)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var token = DriverChatToken(driverParticipantId);
         var messages = ev.ChatRoom is null
@@ -296,10 +296,7 @@ public sealed class EventExperienceController : ControllerBase
 
         if (ev is null) return NotFound("Event not found.");
 
-        var driver = ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == driverParticipantId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
+        var driver = FindActiveMember(ev, driverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
 
         var sender = GetDriverChatActor(ev, userId.Value, driverParticipantId);
@@ -471,12 +468,14 @@ public sealed class EventExperienceController : ControllerBase
         var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId && o.Status == MembershipStatus.Active);
         if (organizer is not null) return organizer;
 
-        return ev.Participants.FirstOrDefault(p =>
-            p.EventMemberId == driverParticipantId &&
-            p.UserId == userId &&
-            p.Status == MembershipStatus.Active &&
-            p.Mode == ParticipantMode.Passive);
+        var driver = FindActiveMember(ev, driverParticipantId);
+        return driver?.UserId == userId ? driver : null;
     }
+
+    private static EventMember? FindActiveMember(Event ev, Guid eventMemberId)
+        => ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .FirstOrDefault(m => m.EventMemberId == eventMemberId && m.Status == MembershipStatus.Active);
 
     private static string DriverChatToken(Guid driverParticipantId)
         => $"{DriverChatPrefix}{driverParticipantId:N}]]";

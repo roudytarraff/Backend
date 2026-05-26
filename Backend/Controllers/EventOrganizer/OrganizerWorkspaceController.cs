@@ -42,7 +42,7 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         if (ev is null) return NotFound("Event not found.");
         if (!IsActiveOrganizer(ev, userId.Value)) return Forbid();
 
-        return Ok(await ToWorkspaceDto(ev, ct));
+        return Ok(await ToWorkspaceDto(ev, userId.Value, ct));
     }
 
     [HttpPost("activities/{activityId:guid}/start")]
@@ -278,23 +278,16 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         }
         else
         {
-            var participant = result.Event!.Participants.FirstOrDefault(p =>
-                p.EventMemberId == req.DriverParticipantId.Value &&
-                p.Status == MembershipStatus.Active);
+            var driver = FindActiveMember(result.Event!, req.DriverParticipantId.Value);
+            if (driver is null) return NotFound("Driver not found.");
 
-            if (participant is null) return NotFound("Driver participant not found.");
-            if (participant.Mode != ParticipantMode.Passive)
-            {
-                return BadRequest("The driver must be a passive participant.");
-            }
-
-            var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == participant.UserId, ct);
+            var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == driver.UserId, ct);
             var driverName = user is null ? "Driver" : $"{user.FirstName} {user.LastName}".Trim();
-            activity.AssignDriver(participant.EventMemberId, driverName);
+            activity.AssignDriver(driver.EventMemberId, driverName);
         }
 
         await _db.SaveChangesAsync(ct);
-        await BroadcastActivityChanged(eventId, activity, "ActivityUpdated");
+        await BroadcastActivityChanged(eventId, activity, "DriverAssigned");
 
         return Ok(new { activity.ActivityId, activity.DriverParticipantId, activity.DriverDisplayName });
     }
@@ -319,10 +312,8 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             return BadRequest("Assign a driver to this transportation activity first.");
         }
 
-        var driver = result.Event!.Participants.FirstOrDefault(p =>
-            p.EventMemberId == activity.DriverParticipantId.Value &&
-            p.Status == MembershipStatus.Active);
-        if (driver is null) return NotFound("Driver participant not found.");
+        var driver = FindActiveMember(result.Event!, activity.DriverParticipantId.Value);
+        if (driver is null) return NotFound("Driver not found.");
 
         var latestPoint = await _db.LocationPoints
             .AsNoTracking()
@@ -510,7 +501,7 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             : new ActivityLoadResult(ev, activity, null);
     }
 
-    private async Task<OrganizerWorkspaceDto> ToWorkspaceDto(Event ev, CancellationToken ct)
+    private async Task<OrganizerWorkspaceDto> ToWorkspaceDto(Event ev, Guid currentUserId, CancellationToken ct)
     {
         var memberUserIds = ev.Organizers.Cast<EventMember>()
             .Concat(ev.Participants)
@@ -556,6 +547,11 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         return new OrganizerWorkspaceDto
         {
             EventId = ev.EventId,
+            CurrentMemberId = ev.Organizers.Cast<EventMember>()
+                .Concat(ev.Participants)
+                .Where(m => m.UserId == currentUserId && m.Status == MembershipStatus.Active)
+                .Select(m => (Guid?)m.EventMemberId)
+                .FirstOrDefault(),
             Title = ev.Title,
             Description = ev.Description,
             EventType = ev.EventType,
@@ -645,6 +641,11 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
     private static bool IsActiveOrganizer(Event ev, Guid userId)
         => ev.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active);
+
+    private static EventMember? FindActiveMember(Event ev, Guid eventMemberId)
+        => ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .FirstOrDefault(m => m.EventMemberId == eventMemberId && m.Status == MembershipStatus.Active);
 
     private static bool IsTransportationActivity(Activity activity)
         => string.Equals(activity.Type, "Transportation", StringComparison.OrdinalIgnoreCase) ||
@@ -771,6 +772,7 @@ public sealed class UpdateMemberLocationRequest
 public sealed class OrganizerWorkspaceDto
 {
     public Guid EventId { get; set; }
+    public Guid? CurrentMemberId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string EventType { get; set; } = string.Empty;

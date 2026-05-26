@@ -215,6 +215,7 @@ public sealed class EventOrganizerController : ControllerBase
             participant.Remove();
         }
 
+        await UnassignDriverFromActivities(eventId, memberId, ct);
         await _db.SaveChangesAsync(ct);
         await BroadcastDetailsChanged(eventId, "MemberRemoved");
 
@@ -232,6 +233,18 @@ public sealed class EventOrganizerController : ControllerBase
 
     private static bool IsOwner(Event ev, Guid userId)
         => ev.Organizers.Any(o => o.EventMemberId == ev.OwnerOrganizerId && o.UserId == userId && o.Status == MembershipStatus.Active);
+
+    private Task UnassignDriverFromActivities(Guid eventId, Guid memberId, CancellationToken ct)
+        => _db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE [Activities]
+            SET [DriverParticipantId] = NULL, [DriverDisplayName] = NULL
+            WHERE [DriverParticipantId] = {memberId}
+              AND [EventDayId] IN (
+                  SELECT [EventDayId]
+                  FROM [EventDays]
+                  WHERE [EventId] = {eventId}
+              )
+            """, ct);
 
     private Task BroadcastDetailsChanged(Guid eventId, string reason = "EventDetailsUpdated")
         => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new

@@ -122,6 +122,7 @@ public sealed class EventVoiceController : ControllerBase
 
         var driver = FindActiveMember(ev, req.DriverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
+        if (driver is Organizer) return BadRequest("Organizer drivers use the event voice channel.");
         if (driver.EventMemberId == organizer.EventMemberId) return BadRequest("You cannot call yourself as the driver.");
 
         var callId = Guid.NewGuid();
@@ -240,6 +241,7 @@ public sealed class EventVoiceController : ControllerBase
 
         var driver = FindActiveMember(ev, req.DriverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
+        if (driver is Organizer) return BadRequest("Organizer drivers use the event voice channel.");
 
         var callerIsOrganizer = caller is Organizer;
         var callerIsDriver = caller.EventMemberId == driver.EventMemberId;

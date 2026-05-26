@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using TripPlanner.Api.Data;
 using TripPlanner.Api.Domain;
 using TripPlanner.Api.Domain.Events;
@@ -222,6 +223,19 @@ public sealed class EventManagementController : ControllerBase
 
         try
         {
+            if (ev.Status == EventStatus.Draft)
+            {
+                await DeleteDraftEvent(eventId, ct);
+                await _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
+                {
+                    EventId = eventId,
+                    Reason = "EventDeleted",
+                    UpdatedAt = DateTime.UtcNow
+                }, ct);
+
+                return Ok(new { message = "Event deleted successfully" });
+            }
+
             ev.Cancel(userId.Value);
             await _db.SaveChangesAsync(ct);
 
@@ -246,6 +260,45 @@ public sealed class EventManagementController : ControllerBase
         {
             return BadRequest(ex.Message);
         }
+    }
+
+    [HttpPost("{eventId}/leave")]
+    public async Task<IActionResult> LeaveEvent(Guid eventId, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId == null)
+            return Unauthorized();
+
+        var ev = await _db.Events
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev == null)
+            return NotFound("Event not found.");
+
+        var member = ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .FirstOrDefault(m => m.UserId == userId.Value && m.Status == MembershipStatus.Active);
+
+        if (member is null)
+            return NotFound("Membership not found.");
+
+        if (member.EventMemberId == ev.OwnerOrganizerId)
+            return BadRequest("The event owner cannot leave. Delete the draft event or transfer ownership first.");
+
+        member.Leave();
+        await UnassignDriverFromActivities(eventId, member.EventMemberId, ct);
+        await _db.SaveChangesAsync(ct);
+
+        await _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
+        {
+            EventId = eventId,
+            Reason = "MemberLeft",
+            UpdatedAt = DateTime.UtcNow
+        }, ct);
+
+        return Ok(new { message = "You left the event successfully" });
     }
 
     [HttpGet("{eventId}/members")]
@@ -388,6 +441,99 @@ public sealed class EventManagementController : ControllerBase
     {
         var uid = User.FindFirstValue("uid");
         return Guid.TryParse(uid, out var userId) ? userId : null;
+    }
+
+    private Task UnassignDriverFromActivities(Guid eventId, Guid memberId, CancellationToken ct)
+        => _db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE [Activities]
+            SET [DriverParticipantId] = NULL, [DriverDisplayName] = NULL
+            WHERE [DriverParticipantId] = {memberId}
+              AND [EventDayId] IN (
+                  SELECT [EventDayId]
+                  FROM [EventDays]
+                  WHERE [EventId] = {eventId}
+              )
+            """, ct);
+
+    private async Task DeleteDraftEvent(Guid eventId, CancellationToken ct)
+    {
+        await using IDbContextTransaction transaction = await _db.Database.BeginTransactionAsync(ct);
+
+        await _db.Database.ExecuteSqlInterpolatedAsync($"UPDATE [Events] SET [OwnerOrganizerId] = NULL WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [LocationPoints]
+            WHERE [LocationSessionId] IN (
+                SELECT [LocationSessionId]
+                FROM [LocationSessions]
+                WHERE [EventMemberId] IN (
+                    SELECT [EventMemberId]
+                    FROM [EventMembers]
+                    WHERE [EventId] = {eventId}
+                )
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [LocationSessions]
+            WHERE [EventMemberId] IN (
+                SELECT [EventMemberId]
+                FROM [EventMembers]
+                WHERE [EventId] = {eventId}
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [EventLocationGrants] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [ChatMessages]
+            WHERE [ChatRoomId] IN (
+                SELECT [ChatRoomId]
+                FROM [ChatRooms]
+                WHERE [EventId] = {eventId}
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [ChatRooms] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [VoiceRecordings]
+            WHERE [VoiceSessionId] IN (
+                SELECT [VoiceSessionId]
+                FROM [VoiceSessions]
+                WHERE [VoiceChannelId] IN (
+                    SELECT [VoiceChannelId]
+                    FROM [VoiceChannels]
+                    WHERE [EventId] = {eventId}
+                )
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [VoiceSessions]
+            WHERE [VoiceChannelId] IN (
+                SELECT [VoiceChannelId]
+                FROM [VoiceChannels]
+                WHERE [EventId] = {eventId}
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [VoiceChannels] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [EventMedia] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [ActivitySteps]
+            WHERE [ActivityId] IN (
+                SELECT [a].[ActivityId]
+                FROM [Activities] AS [a]
+                INNER JOIN [EventDays] AS [d] ON [a].[EventDayId] = [d].[EventDayId]
+                WHERE [d].[EventId] = {eventId}
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            DELETE FROM [Activities]
+            WHERE [EventDayId] IN (
+                SELECT [EventDayId]
+                FROM [EventDays]
+                WHERE [EventId] = {eventId}
+            )
+            """, ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [EventDays] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [EventMembers] WHERE [EventId] = {eventId}", ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [Events] WHERE [EventId] = {eventId}", ct);
+
+        await transaction.CommitAsync(ct);
     }
 
     private static EventDetailsDto ToDetailsDto(Event ev, Guid userId)

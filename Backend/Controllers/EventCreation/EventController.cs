@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Backend.Services.Billing;
 using Backend.Services.Crypto;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
@@ -20,15 +21,18 @@ public class EventController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IJoinPasswordCryptoService _crypto;
     private readonly IBlobStorageService _blobStorage;
+    private readonly PlanLimitService _plans;
 
     public EventController(
         AppDbContext db,
         IJoinPasswordCryptoService crypto,
-        IBlobStorageService blobStorage)
+        IBlobStorageService blobStorage,
+        PlanLimitService plans)
     {
         _db = db;
         _crypto = crypto;
         _blobStorage = blobStorage;
+        _plans = plans;
     }
 
     [HttpPost]
@@ -36,6 +40,7 @@ public class EventController : ControllerBase
 public async Task<IActionResult> Create([FromForm] CreateEventMultipartRequest form, CancellationToken ct)
 {
     var userId = Guid.Parse(User.FindFirstValue("uid")!);
+    await _plans.EnsureCanCreateEvent(_db, userId, ct);
 
     if (string.IsNullOrWhiteSpace(form.Data))
         return BadRequest("Missing data payload.");

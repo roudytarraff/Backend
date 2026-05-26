@@ -46,7 +46,7 @@ public sealed class PlanLimitService
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.UserId == userId, ct);
         var limits = GetLimits(user);
         var monthStart = MonthStartUtc(DateTime.UtcNow);
-        var usedEvents = await CountPublishedEventsThisMonth(db, userId, monthStart, ct);
+        var usedEvents = await CountOwnedEventsThisMonth(db, userId, monthStart, ct);
 
         return new BillingSnapshot
         {
@@ -67,12 +67,15 @@ public sealed class PlanLimitService
     {
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.UserId == ownerUserId, ct);
         var limits = GetLimits(user);
-        var usedEvents = await CountPublishedEventsThisMonth(db, ownerUserId, MonthStartUtc(DateTime.UtcNow), ct);
+        var usedEvents = await CountOwnedEventsThisMonth(db, ownerUserId, MonthStartUtc(DateTime.UtcNow), ct);
 
         Guard.Ensure(
             usedEvents < limits.EventsPerMonth,
             $"Your {limits.Name} plan allows {limits.EventsPerMonth} events per month. Upgrade to TripMate Plus for 20 events per month.");
     }
+
+    public Task EnsureCanCreateEvent(AppDbContext db, Guid ownerUserId, CancellationToken ct)
+        => EnsureCanPublishEvent(db, ownerUserId, ct);
 
     public async Task EnsureParticipantCapacity(AppDbContext db, Guid eventId, CancellationToken ct)
     {
@@ -106,13 +109,11 @@ public sealed class PlanLimitService
         Guard.Ensure(limits.DriverCallsEnabled, "Driver calls and driver chat are available with TripMate Plus.");
     }
 
-    private static async Task<int> CountPublishedEventsThisMonth(AppDbContext db, Guid ownerUserId, DateTime monthStartUtc, CancellationToken ct)
+    private static async Task<int> CountOwnedEventsThisMonth(AppDbContext db, Guid ownerUserId, DateTime monthStartUtc, CancellationToken ct)
         => await db.Events
             .AsNoTracking()
             .Where(e => e.OwnerOrganizerId != null &&
-                        e.PublishedAtUtc != null &&
-                        e.PublishedAtUtc >= monthStartUtc &&
-                        e.Status != EventStatus.Draft &&
+                        e.CreatedAt >= monthStartUtc &&
                         e.Organizers.Any(o => o.EventMemberId == e.OwnerOrganizerId && o.UserId == ownerUserId))
             .CountAsync(ct);
 

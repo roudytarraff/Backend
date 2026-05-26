@@ -44,7 +44,9 @@ public sealed class EventOrganizerController : ControllerBase
 
         if (ev.Status == EventStatus.Draft)
         {
-            await _plans.EnsureCanPublishEvent(_db, userId.Value, ct);
+            var owner = ev.Organizers.FirstOrDefault(o => o.EventMemberId == ev.OwnerOrganizerId);
+            if (owner is null) return BadRequest("Event owner was not found.");
+            await _plans.EnsureCanPublishEvent(_db, owner.UserId, ct);
         }
 
         ev.Start(userId.Value);

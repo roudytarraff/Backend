@@ -205,6 +205,7 @@ public sealed class EventExperienceController : ControllerBase
 
         var driver = FindActiveMember(ev, driverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
+        if (IsOrganizer(driver)) return BadRequest("Organizer drivers use the event chat.");
 
         var actor = GetDriverChatActor(ev, userId.Value, driverParticipantId);
         if (actor is null) return Forbid();
@@ -298,6 +299,7 @@ public sealed class EventExperienceController : ControllerBase
 
         var driver = FindActiveMember(ev, driverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
+        if (IsOrganizer(driver)) return BadRequest("Organizer drivers use the event chat.");
 
         var sender = GetDriverChatActor(ev, userId.Value, driverParticipantId);
         if (sender is null) return Forbid();
@@ -476,6 +478,9 @@ public sealed class EventExperienceController : ControllerBase
         => ev.Organizers.Cast<EventMember>()
             .Concat(ev.Participants)
             .FirstOrDefault(m => m.EventMemberId == eventMemberId && m.Status == MembershipStatus.Active);
+
+    private static bool IsOrganizer(EventMember member)
+        => member is Organizer;
 
     private static string DriverChatToken(Guid driverParticipantId)
         => $"{DriverChatPrefix}{driverParticipantId:N}]]";

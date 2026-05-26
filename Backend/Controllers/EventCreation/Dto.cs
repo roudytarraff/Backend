@@ -27,6 +27,8 @@ public sealed class CreateEventRequest
 
     public string? ThumbnailFileKey { get; set; }
 
+    public string? ThumbnailUrl { get; set; }
+
     public string JoinPassword { get; set; } = "";
 
     public List<EventDayRequest> Days { get; set; } = new();
@@ -58,6 +60,8 @@ public sealed class ActivityRequest
     public double Longitude { get; set; }
 
     public string? ThumbnailFileKey { get; set; }
+
+    public string? ThumbnailUrl { get; set; }
 
     public List<ActivityStepRequest> Steps { get; set; } = new();
 }

@@ -59,6 +59,10 @@ public async Task<IActionResult> Create([FromForm] CreateEventMultipartRequest f
     {
         eventThumbnailUrl = await _blobStorage.UploadImageAsync(eventThumbnailFile, "events", ct);
     }
+    else if (!string.IsNullOrWhiteSpace(req.ThumbnailUrl))
+    {
+        eventThumbnailUrl = req.ThumbnailUrl;
+    }
 
     var startDateUtc = DateTime.SpecifyKind(req.StartDate, DateTimeKind.Utc);
     var joinCode = await GenerateUniqueJoinCodeAsync(11, ct);
@@ -121,6 +125,10 @@ public async Task<IActionResult> Create([FromForm] CreateEventMultipartRequest f
                     await _blobStorage.UploadImageAsync(activityThumbnailFile, "activities", ct);
 
                 activity.UpdateThumbnail(activityThumbnailUrl);
+            }
+            else if (!string.IsNullOrWhiteSpace(act.ThumbnailUrl))
+            {
+                activity.UpdateThumbnail(act.ThumbnailUrl);
             }
 
             eventDay.AddActivity(activity);

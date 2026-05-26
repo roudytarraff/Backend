@@ -158,12 +158,11 @@ public sealed class EventOrganizerController : ControllerBase
         var participant = ev.Participants.FirstOrDefault(p => p.EventMemberId == memberId && p.Status == MembershipStatus.Active);
         if (participant is null) return NotFound("Participant not found.");
 
-        var userId = participant.UserId;
-        _db.Participants.Remove(participant);
-        await _db.SaveChangesAsync(ct);
-
-        _db.Organizers.Add(new Organizer(eventId, userId));
-        await _db.SaveChangesAsync(ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE [EventMembers]
+            SET [MemberType] = N'Organizer'
+            WHERE [EventMemberId] = {memberId} AND [EventId] = {eventId} AND [Status] = {(int)MembershipStatus.Active}
+            """, ct);
         await BroadcastDetailsChanged(eventId, "MemberPromoted");
 
         return Ok();
@@ -183,12 +182,11 @@ public sealed class EventOrganizerController : ControllerBase
         var organizer = ev.Organizers.FirstOrDefault(o => o.EventMemberId == memberId && o.Status == MembershipStatus.Active);
         if (organizer is null) return NotFound("Organizer not found.");
 
-        var userId = organizer.UserId;
-        _db.Organizers.Remove(organizer);
-        await _db.SaveChangesAsync(ct);
-
-        _db.Participants.Add(new Participant(eventId, userId, ParticipantMode.Active));
-        await _db.SaveChangesAsync(ct);
+        await _db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE [EventMembers]
+            SET [MemberType] = N'Participant', [Mode] = {(int)ParticipantMode.Active}
+            WHERE [EventMemberId] = {memberId} AND [EventId] = {eventId} AND [Status] = {(int)MembershipStatus.Active}
+            """, ct);
         await BroadcastDetailsChanged(eventId, "MemberDemoted");
 
         return Ok();

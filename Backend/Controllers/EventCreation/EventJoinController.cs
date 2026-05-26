@@ -58,6 +58,46 @@ public sealed class EventJoinController : ControllerBase
         if (!string.Equals(decryptedPassword, req.JoinPassword, StringComparison.Ordinal))
             return Unauthorized("Invalid join password.");
 
+        var activeMember = ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .FirstOrDefault(m => m.UserId == userId.Value && m.Status == MembershipStatus.Active);
+        if (activeMember is not null)
+        {
+            return BadRequest("User is already a member.");
+        }
+
+        var inactiveParticipant = ev.Participants.FirstOrDefault(p => p.UserId == userId.Value);
+        if (inactiveParticipant is not null)
+        {
+            inactiveParticipant.Activate();
+            inactiveParticipant.SetMode(req.Mode);
+            await _db.SaveChangesAsync(ct);
+
+            return Ok(new JoinEventResponse
+            {
+                EventId = ev.EventId,
+                ParticipantId = inactiveParticipant.EventMemberId,
+                Mode = inactiveParticipant.Mode
+            });
+        }
+
+        var inactiveOrganizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value);
+        if (inactiveOrganizer is not null)
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE [EventMembers]
+                SET [MemberType] = N'Participant', [Status] = {(int)MembershipStatus.Active}, [Mode] = {(int)req.Mode}
+                WHERE [EventMemberId] = {inactiveOrganizer.EventMemberId} AND [EventId] = {ev.EventId}
+                """, ct);
+
+            return Ok(new JoinEventResponse
+            {
+                EventId = ev.EventId,
+                ParticipantId = inactiveOrganizer.EventMemberId,
+                Mode = req.Mode
+            });
+        }
+
         ev.JoinWithCredentials(userId.Value, req.JoinPassword, req.Mode);
 
         await _db.SaveChangesAsync(ct);

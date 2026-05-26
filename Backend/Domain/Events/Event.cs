@@ -588,7 +588,8 @@ public void SetOwnerOrganizerId(Guid organizerId)
     }
 
     private bool IsMember(Guid userId)
-        => Organizers.Any(o => o.UserId == userId) || Participants.Any(p => p.UserId == userId);
+        => Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ||
+           Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active);
 
 
 

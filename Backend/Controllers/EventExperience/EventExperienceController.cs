@@ -329,11 +329,23 @@ public sealed class EventExperienceController : ControllerBase
             IsMine = true
         };
 
+        var broadcastDto = new ChatMessageDto
+        {
+            ChatMessageId = dto.ChatMessageId,
+            Type = dto.Type,
+            SenderMemberId = dto.SenderMemberId,
+            SenderName = dto.SenderName,
+            SenderAvatarUrl = dto.SenderAvatarUrl,
+            Content = dto.Content,
+            SentAt = dto.SentAt,
+            IsMine = false
+        };
+
         await _hubContext.Clients.Group($"event-{eventId}").SendAsync("DriverChatMessageReceived", new
         {
             EventId = eventId,
             DriverParticipantId = driverParticipantId,
-            Message = dto
+            Message = broadcastDto
         }, ct);
 
         return Ok(dto);

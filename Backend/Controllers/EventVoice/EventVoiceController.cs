@@ -179,6 +179,45 @@ public sealed class EventVoiceController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("driver-call/cancel")]
+    public async Task<IActionResult> CancelDriverCall(Guid eventId, [FromBody] DriverCallResponse req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var ev = await _db.Events
+            .AsNoTracking()
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev is null) return NotFound("Event not found.");
+
+        var organizer = ev.Organizers.FirstOrDefault(o => o.UserId == userId.Value && o.Status == MembershipStatus.Active);
+        if (organizer is null) return Forbid();
+
+        var driver = ev.Participants.FirstOrDefault(p =>
+            p.EventMemberId == req.DriverParticipantId &&
+            p.Status == MembershipStatus.Active &&
+            p.Mode == ParticipantMode.Passive);
+        if (driver is null) return NotFound("Driver participant not found.");
+
+        await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
+            .Clients.Group($"event-{eventId}")
+            .SendAsync("DriverCallAnswered", new
+            {
+                EventId = eventId,
+                req.ActivityId,
+                req.CallId,
+                DriverParticipantId = driver.EventMemberId,
+                Accepted = false,
+                CancelledByCaller = true,
+                AnsweredAt = DateTime.UtcNow
+            }, ct);
+
+        return Ok();
+    }
+
     [HttpPost("driver-call/token")]
     public async Task<IActionResult> DriverCallToken(Guid eventId, [FromBody] DriverCallRequest req, CancellationToken ct)
     {

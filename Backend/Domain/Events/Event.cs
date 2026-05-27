@@ -437,12 +437,10 @@ public void SetOwnerOrganizerId(Guid organizerId)
         // organizers see all
         if (viewer is Organizer) return true;
 
-        // participants: only if custom + grant exists
-        if (LocationShareScope != LocationShareScope.Custom) return false;
-
         // viewer can see target only if target granted viewer access
         return LocationGrants.Any(g =>
             g.IsActive &&
+            g.Status == LocationGrantStatus.Active &&
             g.GrantedByMemberId == target.EventMemberId &&
             g.GrantedToMemberId == viewer.EventMemberId);
     }

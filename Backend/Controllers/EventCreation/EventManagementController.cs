@@ -112,7 +112,10 @@ public sealed class EventManagementController : ControllerBase
             .AsNoTracking()
             .AsSplitQuery()
             .Include(e => e.Organizers)
+                .ThenInclude(o => o.LocationSession)
             .Include(e => e.Participants)
+                .ThenInclude(p => p.LocationSession)
+            .Include(e => e.LocationGrants)
             .Include(e => e.EventDays)
                 .ThenInclude(d => d.Activities)
                     .ThenInclude(a => a.Steps)
@@ -128,7 +131,7 @@ public sealed class EventManagementController : ControllerBase
         if (!isMember)
             return Forbid();
 
-        return Ok(ToDetailsDto(ev, userId.Value));
+        return Ok(await ToDetailsDto(ev, userId.Value, ct));
     }
 
     [HttpPut("{eventId}")]
@@ -536,8 +539,46 @@ public sealed class EventManagementController : ControllerBase
         await transaction.CommitAsync(ct);
     }
 
-    private static EventDetailsDto ToDetailsDto(Event ev, Guid userId)
+    private async Task<EventDetailsDto> ToDetailsDto(Event ev, Guid userId, CancellationToken ct)
     {
+        var activeMembers = ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .Where(m => m.Status == MembershipStatus.Active)
+            .ToList();
+        var currentMember = activeMembers.FirstOrDefault(m => m.UserId == userId);
+        var visibleMembers = currentMember is null
+            ? new List<EventMember>()
+            : activeMembers
+                .Where(m => m.EventMemberId != currentMember.EventMemberId && ev.CanViewLocation(userId, m.UserId))
+                .ToList();
+        var visibleUserIds = visibleMembers.Select(m => m.UserId).Distinct().ToList();
+        var visibleUsers = visibleUserIds.Count == 0
+            ? new Dictionary<Guid, TripPlanner.Api.Domain.Users.User>()
+            : await _db.Users.AsNoTracking().Where(u => visibleUserIds.Contains(u.UserId)).ToDictionaryAsync(u => u.UserId, ct);
+        var visibleSessionIds = visibleMembers
+            .Where(m => m.LocationSession != null)
+            .Select(m => m.LocationSession!.LocationSessionId)
+            .Distinct()
+            .ToList();
+        var latestPointRows = visibleSessionIds.Count == 0
+            ? new List<VisibleMemberLocationPointDto>()
+            : await _db.LocationPoints
+                .AsNoTracking()
+                .Where(p => visibleSessionIds.Contains(p.LocationSessionId))
+                .OrderByDescending(p => p.RecordedAt)
+                .Select(p => new VisibleMemberLocationPointDto
+                {
+                    LocationSessionId = p.LocationSessionId,
+                    Latitude = p.Latitude,
+                    Longitude = p.Longitude,
+                    Accuracy = p.Accuracy,
+                    RecordedAt = p.RecordedAt
+                })
+                .ToListAsync(ct);
+        var latestPoints = latestPointRows
+            .GroupBy(p => p.LocationSessionId)
+            .ToDictionary(g => g.Key, g => g.First());
+
         var orderedDays = ev.EventDays
             .OrderBy(d => d.Date)
             .ThenBy(d => d.DayOrder)
@@ -609,7 +650,36 @@ public sealed class EventManagementController : ControllerBase
                 .FirstOrDefault(),
             OrganizersCount = ev.Organizers.Count(o => o.Status == MembershipStatus.Active),
             ParticipantsCount = ev.Participants.Count(p => p.Status == MembershipStatus.Active),
+            VisibleMembers = visibleMembers
+                .Select(m => ToVisibleMemberDto(ev, m, visibleUsers, latestPoints))
+                .Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
+                .ToList(),
             Days = orderedDays
+        };
+    }
+
+    private static VisibleMemberLocationDto ToVisibleMemberDto(
+        Event ev,
+        EventMember member,
+        Dictionary<Guid, TripPlanner.Api.Domain.Users.User> users,
+        Dictionary<Guid, VisibleMemberLocationPointDto> latestPoints)
+    {
+        users.TryGetValue(member.UserId, out var user);
+        VisibleMemberLocationPointDto? point = null;
+        if (member.LocationSession != null)
+            latestPoints.TryGetValue(member.LocationSession.LocationSessionId, out point);
+
+        return new VisibleMemberLocationDto
+        {
+            EventMemberId = member.EventMemberId,
+            UserId = member.UserId,
+            FullName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}",
+            ProfilePictureUrl = user?.ProfilePictureUrl,
+            Role = member.EventMemberId == ev.OwnerOrganizerId ? "Owner" : member is Organizer ? "Organizer" : "Participant",
+            Latitude = point?.Latitude,
+            Longitude = point?.Longitude,
+            Accuracy = point?.Accuracy,
+            LocationRecordedAt = point?.RecordedAt
         };
     }
 }
@@ -686,7 +756,30 @@ public sealed class EventDetailsDto
     public ParticipantMode? ParticipantMode { get; set; }
     public int OrganizersCount { get; set; }
     public int ParticipantsCount { get; set; }
+    public List<VisibleMemberLocationDto> VisibleMembers { get; set; } = new();
     public List<EventDayDetailsDto> Days { get; set; } = new();
+}
+
+public sealed class VisibleMemberLocationDto
+{
+    public Guid EventMemberId { get; set; }
+    public Guid UserId { get; set; }
+    public string FullName { get; set; } = string.Empty;
+    public string? ProfilePictureUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? Accuracy { get; set; }
+    public DateTime? LocationRecordedAt { get; set; }
+}
+
+public sealed class VisibleMemberLocationPointDto
+{
+    public Guid LocationSessionId { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public double Accuracy { get; set; }
+    public DateTime RecordedAt { get; set; }
 }
 
 public sealed class EventDayDetailsDto

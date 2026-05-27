@@ -30,6 +30,9 @@ public sealed class EventJoinController : ControllerBase
     [HttpPost("join")]
     public async Task<IActionResult> Join([FromBody] JoinEventRequest req, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(req.JoinPassword))
+            return BadRequest(new { message = "Password is required." });
+
         if (!ModelState.IsValid)
             return ValidationProblem(ModelState);
 

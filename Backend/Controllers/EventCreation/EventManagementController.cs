@@ -659,7 +659,6 @@ public sealed class EventManagementController : ControllerBase
             ParticipantsCount = ev.Participants.Count(p => p.Status == MembershipStatus.Active),
             VisibleMembers = visibleMembers
                 .Select(m => ToVisibleMemberDto(ev, m, visibleUsers, latestPoints))
-                .Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
                 .ToList(),
             Days = orderedDays
         };

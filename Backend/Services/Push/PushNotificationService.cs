@@ -170,7 +170,17 @@ public sealed class PushNotificationService
             var appName = string.IsNullOrWhiteSpace(_options.ProjectId)
                 ? "tripmate-push"
                 : $"tripmate-push-{_options.ProjectId}";
-            var app = FirebaseApp.GetInstance(appName) ?? FirebaseApp.Create(new AppOptions
+            FirebaseApp? app = null;
+            try
+            {
+                app = FirebaseApp.GetInstance(appName);
+            }
+            catch
+            {
+                app = null;
+            }
+
+            app ??= FirebaseApp.Create(new AppOptions
             {
                 Credential = GoogleCredential.FromJson(json),
                 ProjectId = _options.ProjectId

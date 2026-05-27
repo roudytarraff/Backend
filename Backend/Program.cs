@@ -9,6 +9,7 @@ using Backend.Services.Crypto;
 using Backend.Services.Billing;
 using Backend.Services.Storage;
 using Backend.Services.Voice;
+using Backend.Services.Push;
 using Microsoft.OpenApi.Models;
 
 
@@ -46,6 +47,8 @@ builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
 builder.Services.AddScoped<PlanLimitService>();
 builder.Services.Configure<LiveKitOptions>(builder.Configuration.GetSection("LiveKit"));
 builder.Services.AddSingleton<LiveKitTokenService>();
+builder.Services.Configure<FirebasePushOptions>(builder.Configuration.GetSection("Firebase"));
+builder.Services.AddScoped<PushNotificationService>();
 
 // JWT options
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()

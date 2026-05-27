@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Backend.Hubs;
 using Backend.Services.Billing;
+using Backend.Services.Push;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,13 +26,15 @@ public sealed class EventExperienceController : ControllerBase
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<EventHub> _hubContext;
     private readonly PlanLimitService _plans;
+    private readonly PushNotificationService _push;
 
-    public EventExperienceController(AppDbContext db, IBlobStorageService blobStorage, IHubContext<EventHub> hubContext, PlanLimitService plans)
+    public EventExperienceController(AppDbContext db, IBlobStorageService blobStorage, IHubContext<EventHub> hubContext, PlanLimitService plans, PushNotificationService push)
     {
         _db = db;
         _blobStorage = blobStorage;
         _hubContext = hubContext;
         _plans = plans;
+        _push = push;
     }
 
     [HttpGet("chat")]
@@ -187,6 +190,19 @@ public sealed class EventExperienceController : ControllerBase
             EventId = eventId,
             Message = dto
         }, ct);
+
+        await _push.SendToEventAsync(
+            eventId,
+            ev.Title,
+            $"{dto.SenderName}: {dto.Content}",
+            new Dictionary<string, string>
+            {
+                ["type"] = "event-chat",
+                ["eventId"] = eventId.ToString(),
+                ["messageId"] = dto.ChatMessageId.ToString()
+            },
+            userId.Value,
+            ct);
 
         return Ok(dto);
     }
@@ -351,6 +367,20 @@ public sealed class EventExperienceController : ControllerBase
             DriverParticipantId = driverParticipantId,
             Message = broadcastDto
         }, ct);
+
+        await _push.SendToEventMembersAsync(
+            eventId,
+            ev.Organizers.Cast<EventMember>().Append(driver).Where(m => m.EventMemberId != sender.EventMemberId).Select(m => m.EventMemberId),
+            "Driver chat",
+            $"{dto.SenderName}: {dto.Content}",
+            new Dictionary<string, string>
+            {
+                ["type"] = "driver-chat",
+                ["eventId"] = eventId.ToString(),
+                ["driverParticipantId"] = driverParticipantId.ToString(),
+                ["messageId"] = dto.ChatMessageId.ToString()
+            },
+            ct);
 
         return Ok(dto);
     }

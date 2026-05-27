@@ -76,6 +76,10 @@ public static class ModelMap
             .Property(x => x.RefreshTokenId)
             .ValueGeneratedNever();
 
+        modelBuilder.Entity<DevicePushToken>()
+            .Property(x => x.DevicePushTokenId)
+            .ValueGeneratedNever();
+
         // -------------------------------------------------------
         // Users
         // -------------------------------------------------------
@@ -97,6 +101,22 @@ public static class ModelMap
 
             b.HasOne(x => x.User)
                 .WithMany(u => u.RefreshTokens)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DevicePushToken>(b =>
+        {
+            b.ToTable("DevicePushTokens");
+            b.HasIndex(x => x.Token).IsUnique();
+            b.HasIndex(x => new { x.UserId, x.IsActive });
+
+            b.Property(x => x.Token).HasMaxLength(512).IsRequired();
+            b.Property(x => x.Platform).HasMaxLength(32).IsRequired();
+            b.Property(x => x.DeviceId).HasMaxLength(128);
+
+            b.HasOne<User>()
+                .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

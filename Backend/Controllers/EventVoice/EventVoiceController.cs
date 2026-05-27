@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Backend.Services.Billing;
+using Backend.Services.Push;
 using Backend.Services.Voice;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,12 +20,14 @@ public sealed class EventVoiceController : ControllerBase
     private readonly AppDbContext _db;
     private readonly LiveKitTokenService _liveKit;
     private readonly PlanLimitService _plans;
+    private readonly PushNotificationService _push;
 
-    public EventVoiceController(AppDbContext db, LiveKitTokenService liveKit, PlanLimitService plans)
+    public EventVoiceController(AppDbContext db, LiveKitTokenService liveKit, PlanLimitService plans, PushNotificationService push)
     {
         _db = db;
         _liveKit = liveKit;
         _plans = plans;
+        _push = push;
     }
 
     [HttpPost("token")]
@@ -144,6 +147,22 @@ public sealed class EventVoiceController : ControllerBase
                 RequestedAt = DateTime.UtcNow
             }, ct);
 
+        await _push.SendToEventMembersAsync(
+            eventId,
+            new[] { driver.EventMemberId },
+            "Incoming driver call",
+            $"Organizer is calling you for {ev.Title}.",
+            new Dictionary<string, string>
+            {
+                ["type"] = "driver-call",
+                ["eventId"] = eventId.ToString(),
+                ["activityId"] = req.ActivityId?.ToString() ?? "",
+                ["callId"] = callId.ToString(),
+                ["driverParticipantId"] = driver.EventMemberId.ToString(),
+                ["title"] = ev.Title
+            },
+            ct);
+
         return Ok(new { callId });
     }
 
@@ -176,6 +195,22 @@ public sealed class EventVoiceController : ControllerBase
                 Accepted = req.Accepted,
                 AnsweredAt = DateTime.UtcNow
             }, ct);
+
+        await _push.SendToEventMembersAsync(
+            eventId,
+            ev.Organizers.Where(o => o.Status == MembershipStatus.Active).Select(o => o.EventMemberId),
+            req.Accepted ? "Driver answered" : "Driver declined",
+            req.Accepted ? "The driver answered your call." : "The driver declined your call.",
+            new Dictionary<string, string>
+            {
+                ["type"] = req.Accepted ? "driver-call-answered" : "driver-call-ended",
+                ["eventId"] = eventId.ToString(),
+                ["activityId"] = req.ActivityId?.ToString() ?? "",
+                ["callId"] = req.CallId?.ToString() ?? "",
+                ["driverParticipantId"] = driver.EventMemberId.ToString(),
+                ["accepted"] = req.Accepted ? "true" : "false"
+            },
+            ct);
 
         return Ok();
     }
@@ -212,6 +247,22 @@ public sealed class EventVoiceController : ControllerBase
                 CancelledByCaller = true,
                 AnsweredAt = DateTime.UtcNow
             }, ct);
+
+        await _push.SendToEventMembersAsync(
+            eventId,
+            new[] { driver.EventMemberId },
+            "Driver call cancelled",
+            "The organizer cancelled the driver call.",
+            new Dictionary<string, string>
+            {
+                ["type"] = "driver-call-ended",
+                ["eventId"] = eventId.ToString(),
+                ["activityId"] = req.ActivityId?.ToString() ?? "",
+                ["callId"] = req.CallId?.ToString() ?? "",
+                ["driverParticipantId"] = driver.EventMemberId.ToString(),
+                ["cancelledByCaller"] = "true"
+            },
+            ct);
 
         return Ok();
     }

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Backend.Services.Push;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,15 +22,18 @@ public sealed class OrganizerWorkspaceController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<Hubs.EventHub> _hubContext;
+    private readonly PushNotificationService _push;
 
     public OrganizerWorkspaceController(
         AppDbContext db,
         IBlobStorageService blobStorage,
-        IHubContext<Hubs.EventHub> hubContext)
+        IHubContext<Hubs.EventHub> hubContext,
+        PushNotificationService push)
     {
         _db = db;
         _blobStorage = blobStorage;
         _hubContext = hubContext;
+        _push = push;
     }
 
     [HttpGet]
@@ -669,8 +673,9 @@ public sealed class OrganizerWorkspaceController : ControllerBase
            activity.Title.Contains("driver", StringComparison.OrdinalIgnoreCase) ||
            activity.Title.Contains("transport", StringComparison.OrdinalIgnoreCase);
 
-    private Task BroadcastActivityChanged(Guid eventId, Activity activity, string reason)
-        => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
+    private async Task BroadcastActivityChanged(Guid eventId, Activity activity, string reason)
+    {
+        await _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
         {
             EventId = eventId,
             ActivityId = activity.ActivityId,
@@ -684,13 +689,40 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             UpdatedAt = DateTime.UtcNow
         });
 
-    private Task BroadcastDetailsChanged(Guid eventId, string reason)
-        => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
+        await _push.SendToEventAsync(
+            eventId,
+            "TripMate schedule update",
+            ActivityNotificationBody(reason, activity.Title),
+            new Dictionary<string, string>
+            {
+                ["type"] = "event-update",
+                ["eventId"] = eventId.ToString(),
+                ["activityId"] = activity.ActivityId.ToString(),
+                ["activityTitle"] = activity.Title,
+                ["reason"] = reason
+            });
+    }
+
+    private async Task BroadcastDetailsChanged(Guid eventId, string reason)
+    {
+        await _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
         {
             EventId = eventId,
             Reason = reason,
             UpdatedAt = DateTime.UtcNow
         });
+
+        await _push.SendToEventAsync(
+            eventId,
+            "TripMate event update",
+            DetailsNotificationBody(reason),
+            new Dictionary<string, string>
+            {
+                ["type"] = "event-update",
+                ["eventId"] = eventId.ToString(),
+                ["reason"] = reason
+            });
+    }
 
     private Guid? GetUserIdFromClaims()
     {
@@ -716,6 +748,26 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
         return activity.StartTime ?? activity.EndTime ?? DateTime.UtcNow;
     }
+
+    private static string ActivityNotificationBody(string reason, string activityTitle) => reason switch
+    {
+        "ActivityStarted" => $"{activityTitle} started.",
+        "ActivityEnded" => $"{activityTitle} ended.",
+        "ActivityAdded" => $"{activityTitle} was added.",
+        "ActivityUpdated" => $"{activityTitle} was updated.",
+        "ActivityDeleted" => $"{activityTitle} was deleted.",
+        "DriverAssigned" => $"{activityTitle} driver was updated.",
+        "DriverLocationUpdated" => $"{activityTitle} was updated to the driver location.",
+        _ => $"{activityTitle} was updated."
+    };
+
+    private static string DetailsNotificationBody(string reason) => reason switch
+    {
+        "DayAdded" => "A day was added to the schedule.",
+        "DayDeleted" => "A day was removed from the schedule.",
+        "ActivityOrderUpdated" => "The activity order was updated.",
+        _ => "The event schedule was updated."
+    };
 
     private static DateTime CombineDayAndTime(DateTime dayDate, string time)
     {

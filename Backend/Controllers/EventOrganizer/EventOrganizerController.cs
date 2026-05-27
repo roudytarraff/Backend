@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Backend.Services.Billing;
+using Backend.Services.Push;
 using Backend.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,17 +21,20 @@ public sealed class EventOrganizerController : ControllerBase
     private readonly IBlobStorageService _blobStorage;
     private readonly IHubContext<Hubs.EventHub> _hubContext;
     private readonly PlanLimitService _plans;
+    private readonly PushNotificationService _push;
 
     public EventOrganizerController(
         AppDbContext db,
         IBlobStorageService blobStorage,
         IHubContext<Hubs.EventHub> hubContext,
-        PlanLimitService plans)
+        PlanLimitService plans,
+        PushNotificationService push)
     {
         _db = db;
         _blobStorage = blobStorage;
         _hubContext = hubContext;
         _plans = plans;
+        _push = push;
     }
 
     [HttpPost("start")]
@@ -257,13 +261,26 @@ public sealed class EventOrganizerController : ControllerBase
               )
             """, ct);
 
-    private Task BroadcastDetailsChanged(Guid eventId, string reason = "EventDetailsUpdated")
-        => _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
+    private async Task BroadcastDetailsChanged(Guid eventId, string reason = "EventDetailsUpdated")
+    {
+        await _hubContext.Clients.Group($"event-{eventId}").SendAsync("EventDetailsUpdated", new
         {
             EventId = eventId,
             Reason = reason,
             UpdatedAt = DateTime.UtcNow
         });
+
+        await _push.SendToEventAsync(
+            eventId,
+            "TripMate event update",
+            NotificationBody(reason),
+            new Dictionary<string, string>
+            {
+                ["type"] = "event-update",
+                ["eventId"] = eventId.ToString(),
+                ["reason"] = reason
+            });
+    }
 
     private async Task SafeBroadcastDetailsChanged(Guid eventId, string reason)
     {
@@ -282,6 +299,17 @@ public sealed class EventOrganizerController : ControllerBase
         var uid = User.FindFirstValue("uid");
         return Guid.TryParse(uid, out var userId) ? userId : null;
     }
+
+    private static string NotificationBody(string reason) => reason switch
+    {
+        "EventStarted" => "The event started.",
+        "EventEnded" => "The event ended.",
+        "MemberRemoved" => "A member was removed from the event.",
+        "MemberPromoted" => "A participant was promoted to organizer.",
+        "MemberDemoted" => "An organizer was changed to participant.",
+        "EventDetailsUpdated" => "Event details were updated.",
+        _ => "The event was updated."
+    };
 }
 
 public sealed class UpdateOrganizerEventRequest

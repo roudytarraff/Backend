@@ -51,7 +51,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         ev.Start(userId.Value);
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId, "EventStarted");
+        _ = SafeBroadcastDetailsChanged(eventId, "EventStarted");
 
         return Ok(new { ev.EventId, ev.Status });
     }
@@ -67,7 +67,7 @@ public sealed class EventOrganizerController : ControllerBase
 
         ev.End(userId.Value);
         await _db.SaveChangesAsync(ct);
-        await BroadcastDetailsChanged(eventId, "EventEnded");
+        _ = SafeBroadcastDetailsChanged(eventId, "EventEnded");
 
         return Ok(new { ev.EventId, ev.Status });
     }
@@ -264,6 +264,18 @@ public sealed class EventOrganizerController : ControllerBase
             Reason = reason,
             UpdatedAt = DateTime.UtcNow
         });
+
+    private async Task SafeBroadcastDetailsChanged(Guid eventId, string reason)
+    {
+        try
+        {
+            await BroadcastDetailsChanged(eventId, reason);
+        }
+        catch
+        {
+            // The HTTP request already saved the state; SignalR must not block organizer actions.
+        }
+    }
 
     private Guid? GetUserIdFromClaims()
     {

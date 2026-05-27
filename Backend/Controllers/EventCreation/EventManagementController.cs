@@ -65,35 +65,32 @@ public sealed class EventManagementController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        var events = await _db.Events
+        var events = await _db.EventMembers
             .AsNoTracking()
-            .Where(e => e.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ||
-                       e.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active))
-            .Select(e => new UserEventDto
+            .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
+            .Join(
+                _db.Events.AsNoTracking(),
+                m => m.EventId,
+                e => e.EventId,
+                (m, e) => new { Member = m, Event = e })
+            .Select(x => new UserEventDto
             {
-                EventId = e.EventId,
-                Title = e.Title,
-                EventType = e.EventType,
-                StartDate = e.StartDate,
-                EndDate = e.EndDate,
-                Status = e.Status,
-                DestinationName = e.DestinationName,
-                ThumbnailUrl = e.ThumbnailUrl,
-                CreatedAt = e.CreatedAt,
-                EventMemberId = e.Organizers
-                    .Where(o => o.UserId == userId && o.Status == MembershipStatus.Active)
-                    .Select(o => (Guid?)o.EventMemberId)
-                    .FirstOrDefault() ?? e.Participants
-                    .Where(p => p.UserId == userId && p.Status == MembershipStatus.Active)
-                    .Select(p => (Guid?)p.EventMemberId)
-                    .FirstOrDefault(),
-                Role = e.Organizers.Any(o => o.UserId == userId && o.EventMemberId == e.OwnerOrganizerId && o.Status == MembershipStatus.Active) ? "Owner" :
-                       e.Organizers.Any(o => o.UserId == userId && o.Status == MembershipStatus.Active) ? "Organizer" :
-                       e.Participants.Any(p => p.UserId == userId && p.Status == MembershipStatus.Active) ? "Participant" : "Unknown",
-                ParticipantMode = e.Participants
-                    .Where(p => p.UserId == userId && p.Status == MembershipStatus.Active)
-                    .Select(p => (ParticipantMode?)p.Mode)
-                    .FirstOrDefault()
+                EventId = x.Event.EventId,
+                Title = x.Event.Title,
+                EventType = x.Event.EventType,
+                StartDate = x.Event.StartDate,
+                EndDate = x.Event.EndDate,
+                Status = x.Event.Status,
+                DestinationName = x.Event.DestinationName,
+                ThumbnailUrl = x.Event.ThumbnailUrl,
+                CreatedAt = x.Event.CreatedAt,
+                EventMemberId = x.Member.EventMemberId,
+                Role = x.Event.OwnerOrganizerId == x.Member.EventMemberId ? "Owner" :
+                       EF.Property<string>(x.Member, "MemberType") == "Organizer" ? "Organizer" :
+                       EF.Property<string>(x.Member, "MemberType") == "Participant" ? "Participant" : "Unknown",
+                ParticipantMode = EF.Property<string>(x.Member, "MemberType") == "Participant"
+                    ? EF.Property<ParticipantMode?>(x.Member, "Mode")
+                    : null
             })
             .OrderByDescending(e => e.StartDate)
             .ToListAsync(ct);

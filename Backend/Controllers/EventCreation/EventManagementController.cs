@@ -65,35 +65,45 @@ public sealed class EventManagementController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        var events = await _db.EventMembers
+        var memberships = await _db.EventMembers
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
-            .Join(
-                _db.Events.AsNoTracking(),
-                m => m.EventId,
-                e => e.EventId,
-                (m, e) => new { Member = m, Event = e })
-            .Select(x => new UserEventDto
+            .ToListAsync(ct);
+
+        var eventIds = memberships.Select(m => m.EventId).Distinct().ToList();
+        if (eventIds.Count == 0)
+            return Ok(Array.Empty<UserEventDto>());
+
+        var eventsById = await _db.Events
+            .AsNoTracking()
+            .Where(e => eventIds.Contains(e.EventId))
+            .ToDictionaryAsync(e => e.EventId, ct);
+
+        var events = memberships
+            .Where(m => eventsById.ContainsKey(m.EventId))
+            .Select(m =>
             {
-                EventId = x.Event.EventId,
-                Title = x.Event.Title,
-                EventType = x.Event.EventType,
-                StartDate = x.Event.StartDate,
-                EndDate = x.Event.EndDate,
-                Status = x.Event.Status,
-                DestinationName = x.Event.DestinationName,
-                ThumbnailUrl = x.Event.ThumbnailUrl,
-                CreatedAt = x.Event.CreatedAt,
-                EventMemberId = x.Member.EventMemberId,
-                Role = x.Event.OwnerOrganizerId == x.Member.EventMemberId ? "Owner" :
-                       EF.Property<string>(x.Member, "MemberType") == "Organizer" ? "Organizer" :
-                       EF.Property<string>(x.Member, "MemberType") == "Participant" ? "Participant" : "Unknown",
-                ParticipantMode = EF.Property<string>(x.Member, "MemberType") == "Participant"
-                    ? EF.Property<ParticipantMode?>(x.Member, "Mode")
-                    : null
+                var ev = eventsById[m.EventId];
+                return new UserEventDto
+                {
+                    EventId = ev.EventId,
+                    Title = ev.Title,
+                    EventType = ev.EventType,
+                    StartDate = ev.StartDate,
+                    EndDate = ev.EndDate,
+                    Status = ev.Status,
+                    DestinationName = ev.DestinationName,
+                    ThumbnailUrl = ev.ThumbnailUrl,
+                    CreatedAt = ev.CreatedAt,
+                    EventMemberId = m.EventMemberId,
+                    Role = ev.OwnerOrganizerId == m.EventMemberId ? "Owner" :
+                           m is Organizer ? "Organizer" :
+                           m is Participant ? "Participant" : "Unknown",
+                    ParticipantMode = m is Participant p ? p.Mode : null
+                };
             })
             .OrderByDescending(e => e.StartDate)
-            .ToListAsync(ct);
+            .ToList();
 
         return Ok(events);
     }

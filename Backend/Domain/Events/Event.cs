@@ -437,11 +437,13 @@ public void SetOwnerOrganizerId(Guid organizerId)
         // organizers see all
         if (viewer is Organizer) return true;
 
-        // viewer can see target only if target granted viewer access
+        // Confirmed member-to-member sharing is mutual.
         return LocationGrants.Any(g =>
             g.IsActive &&
-            g.GrantedByMemberId == target.EventMemberId &&
-            g.GrantedToMemberId == viewer.EventMemberId);
+            ((g.GrantedByMemberId == target.EventMemberId &&
+              g.GrantedToMemberId == viewer.EventMemberId) ||
+             (g.GrantedByMemberId == viewer.EventMemberId &&
+              g.GrantedToMemberId == target.EventMemberId)));
     }
 
     // ---------------- Scheduling entrypoints ----------------

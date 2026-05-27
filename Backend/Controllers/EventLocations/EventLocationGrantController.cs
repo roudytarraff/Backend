@@ -104,8 +104,21 @@ public sealed class EventLocationGrantController : ControllerBase
             return NotFound(new { message = "Location request not found." });
 
         request.Activate();
+        var reciprocal = ev.LocationGrants.FirstOrDefault(g =>
+            g.GrantedByMemberId == requester.EventMemberId &&
+            g.GrantedToMemberId == currentMember.EventMemberId);
+
+        if (reciprocal is null)
+        {
+            ev.LocationGrants.Add(new LocationGrant(requester.EventMemberId, currentMember.EventMemberId));
+        }
+        else
+        {
+            reciprocal.Activate();
+        }
+
         await _db.SaveChangesAsync(ct);
-        return Ok(new { message = "Location sharing enabled." });
+        return Ok(new { message = "Location sharing enabled both ways." });
     }
 
     [HttpDelete("{otherMemberId:guid}")]
@@ -170,6 +183,7 @@ public sealed class EventLocationGrantController : ControllerBase
         var grantedByMe = ev.LocationGrants.FirstOrDefault(g =>
             g.GrantedByMemberId == currentMember.EventMemberId &&
             g.GrantedToMemberId == member.EventMemberId);
+        var activeEitherWay = grantedToMe is { IsActive: true } || grantedByMe is { IsActive: true };
 
         return new LocationGrantMemberDto
         {
@@ -179,10 +193,10 @@ public sealed class EventLocationGrantController : ControllerBase
             ProfilePictureUrl = user?.ProfilePictureUrl,
             Role = member.EventMemberId == ev.OwnerOrganizerId ? "Owner" : member is Organizer ? "Organizer" : "Participant",
             IsPassiveParticipant = member is Participant p && p.Mode == ParticipantMode.Passive,
-            CanSeeTheirLocation = grantedToMe is { IsActive: true },
-            TheyCanSeeMyLocation = grantedByMe is { IsActive: true },
-            RequestSent = grantedToMe is { IsActive: false },
-            RequestReceived = grantedByMe is { IsActive: false }
+            CanSeeTheirLocation = activeEitherWay,
+            TheyCanSeeMyLocation = activeEitherWay,
+            RequestSent = !activeEitherWay && grantedToMe is { IsActive: false },
+            RequestReceived = !activeEitherWay && grantedByMe is { IsActive: false }
         };
     }
 

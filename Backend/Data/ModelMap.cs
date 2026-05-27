@@ -185,7 +185,6 @@ public static class ModelMap
                 og.Property(x => x.GrantedToMemberId).IsRequired();
                 og.Property(x => x.CreatedAt).IsRequired();
                 og.Property(x => x.IsActive).IsRequired();
-                og.Property(x => x.Status).HasConversion<int>().IsRequired();
 
                 og.HasIndex("EventId", nameof(LocationGrant.GrantedByMemberId), nameof(LocationGrant.GrantedToMemberId))
                     .IsUnique();

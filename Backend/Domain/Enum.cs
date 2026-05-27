@@ -6,7 +6,6 @@ public enum EventStatus { Draft, Active, Cancelled, Completed }
 public enum MembershipStatus { Active, Suspended, Left, Removed }
 public enum ParticipantMode { Active, Passive }
 public enum LocationShareScope { OrganizersOnly, Custom }
-public enum LocationGrantStatus { Pending, Active }
 public enum RefreshTokenStatus { Active, Revoked, Expired }
 
 public enum Capability

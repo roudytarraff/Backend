@@ -440,7 +440,6 @@ public void SetOwnerOrganizerId(Guid organizerId)
         // viewer can see target only if target granted viewer access
         return LocationGrants.Any(g =>
             g.IsActive &&
-            g.Status == LocationGrantStatus.Active &&
             g.GrantedByMemberId == target.EventMemberId &&
             g.GrantedToMemberId == viewer.EventMemberId);
     }

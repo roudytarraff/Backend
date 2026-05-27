@@ -33,9 +33,10 @@ public sealed class EventLocationGrantController : ControllerBase
             .Where(m => m.Status == MembershipStatus.Active)
             .ToList();
 
+        var memberUserIds = members.Select(m => m.UserId).Distinct().ToList();
         var users = await _db.Users
             .AsNoTracking()
-            .Where(u => members.Select(m => m.UserId).Contains(u.UserId))
+            .Where(u => memberUserIds.Contains(u.UserId))
             .ToDictionaryAsync(u => u.UserId, ct);
 
         return Ok(new LocationGrantListDto
@@ -71,7 +72,7 @@ public sealed class EventLocationGrantController : ControllerBase
 
         if (existing is null)
         {
-            ev.LocationGrants.Add(new LocationGrant(target.EventMemberId, currentMember.EventMemberId, LocationGrantStatus.Pending));
+            ev.LocationGrants.Add(new LocationGrant(target.EventMemberId, currentMember.EventMemberId, isActive: false));
         }
         else if (!existing.IsActive)
         {
@@ -97,7 +98,7 @@ public sealed class EventLocationGrantController : ControllerBase
         var request = ev.LocationGrants.FirstOrDefault(g =>
             g.GrantedByMemberId == currentMember.EventMemberId &&
             g.GrantedToMemberId == requester.EventMemberId &&
-            g.Status == LocationGrantStatus.Pending);
+            !g.IsActive);
 
         if (request is null)
             return NotFound(new { message = "Location request not found." });
@@ -178,10 +179,10 @@ public sealed class EventLocationGrantController : ControllerBase
             ProfilePictureUrl = user?.ProfilePictureUrl,
             Role = member.EventMemberId == ev.OwnerOrganizerId ? "Owner" : member is Organizer ? "Organizer" : "Participant",
             IsPassiveParticipant = member is Participant p && p.Mode == ParticipantMode.Passive,
-            CanSeeTheirLocation = grantedToMe is { IsActive: true, Status: LocationGrantStatus.Active },
-            TheyCanSeeMyLocation = grantedByMe is { IsActive: true, Status: LocationGrantStatus.Active },
-            RequestSent = grantedToMe is { Status: LocationGrantStatus.Pending },
-            RequestReceived = grantedByMe is { Status: LocationGrantStatus.Pending }
+            CanSeeTheirLocation = grantedToMe is { IsActive: true },
+            TheyCanSeeMyLocation = grantedByMe is { IsActive: true },
+            RequestSent = grantedToMe is { IsActive: false },
+            RequestReceived = grantedByMe is { IsActive: false }
         };
     }
 

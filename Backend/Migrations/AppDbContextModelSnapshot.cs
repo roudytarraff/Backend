@@ -667,9 +667,6 @@ namespace Backend.Migrations
                             b1.Property<bool>("IsActive")
                                 .HasColumnType("bit");
 
-                            b1.Property<int>("Status")
-                                .HasColumnType("int");
-
                             b1.HasKey("LocationGrantId");
 
                             b1.HasIndex("GrantedByMemberId");

@@ -78,6 +78,32 @@ public sealed class EventManagementController : ControllerBase
             .AsNoTracking()
             .Where(e => eventIds.Contains(e.EventId))
             .ToDictionaryAsync(e => e.EventId, ct);
+        var ownerMemberIds = eventsById.Values
+            .Select(e => e.OwnerOrganizerId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        var plusOwnerMemberIds = ownerMemberIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await _db.Organizers
+                .AsNoTracking()
+                .Where(o => ownerMemberIds.Contains(o.EventMemberId))
+                .Join(
+                    _db.Users.AsNoTracking(),
+                    organizer => organizer.UserId,
+                    user => user.UserId,
+                    (organizer, user) => new
+                    {
+                        organizer.EventMemberId,
+                        user.SubscriptionPlan,
+                        user.PlusExpiresAtUtc
+                    })
+                .Where(x => x.SubscriptionPlan == SubscriptionPlan.Plus &&
+                            (x.PlusExpiresAtUtc == null || x.PlusExpiresAtUtc > DateTime.UtcNow))
+                .Select(x => x.EventMemberId)
+                .ToListAsync(ct))
+            .ToHashSet();
 
         var events = memberships
             .Where(m => eventsById.ContainsKey(m.EventId))
@@ -99,7 +125,8 @@ public sealed class EventManagementController : ControllerBase
                     Role = ev.OwnerOrganizerId == m.EventMemberId ? "Owner" :
                            m is Organizer ? "Organizer" :
                            m is Participant ? "Participant" : "Unknown",
-                    ParticipantMode = m is Participant p ? p.Mode : null
+                    ParticipantMode = m is Participant p ? p.Mode : null,
+                    IsPlusEnabled = ev.OwnerOrganizerId.HasValue && plusOwnerMemberIds.Contains(ev.OwnerOrganizerId.Value)
                 };
             })
             .OrderByDescending(e => e.StartDate)
@@ -643,6 +670,7 @@ public sealed class EventManagementController : ControllerBase
             CreatedAt = ev.CreatedAt,
             JoinCode = ev.JoinCode,
             IsJoinEnabled = ev.IsJoinEnabled,
+            IsPlusEnabled = await EventOwnerHasPlus(ev, ct),
             EventMemberId = ev.Organizers.Cast<EventMember>()
                 .Concat(ev.Participants)
                 .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
@@ -662,6 +690,23 @@ public sealed class EventManagementController : ControllerBase
                 .ToList(),
             Days = orderedDays
         };
+    }
+
+    private async Task<bool> EventOwnerHasPlus(Event ev, CancellationToken ct)
+    {
+        if (ev.OwnerOrganizerId is null) return false;
+
+        var ownerUserId = ev.Organizers
+            .Where(o => o.EventMemberId == ev.OwnerOrganizerId && o.Status == MembershipStatus.Active)
+            .Select(o => (Guid?)o.UserId)
+            .FirstOrDefault();
+        if (ownerUserId is null) return false;
+
+        return await _db.Users
+            .AsNoTracking()
+            .Where(u => u.UserId == ownerUserId.Value)
+            .AnyAsync(u => u.SubscriptionPlan == SubscriptionPlan.Plus &&
+                           (u.PlusExpiresAtUtc == null || u.PlusExpiresAtUtc > DateTime.UtcNow), ct);
     }
 
     private static VisibleMemberLocationDto ToVisibleMemberDto(
@@ -739,6 +784,7 @@ public sealed class UserEventDto
     public Guid? EventMemberId { get; set; }
     public string Role { get; set; } = "Unknown"; // "Owner", "Organizer", "Participant"
     public ParticipantMode? ParticipantMode { get; set; }
+    public bool IsPlusEnabled { get; set; }
 }
 
 public sealed class EventDetailsDto
@@ -757,6 +803,7 @@ public sealed class EventDetailsDto
     public DateTime CreatedAt { get; set; }
     public string JoinCode { get; set; } = string.Empty;
     public bool IsJoinEnabled { get; set; }
+    public bool IsPlusEnabled { get; set; }
     public Guid? EventMemberId { get; set; }
     public string Role { get; set; } = "Unknown";
     public ParticipantMode? ParticipantMode { get; set; }

@@ -562,6 +562,7 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             DestinationLatitude = ev.DestinationLatitude,
             DestinationLongitude = ev.DestinationLongitude,
             ThumbnailUrl = ev.ThumbnailUrl,
+            IsPlusEnabled = EventOwnerHasPlus(ev, users),
             Days = ev.EventDays
                 .OrderBy(d => d.Date)
                 .ThenBy(d => d.DayOrder)
@@ -637,6 +638,21 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             Accuracy = lastPoint?.Accuracy,
             LocationRecordedAt = lastPoint?.RecordedAt
         };
+    }
+
+    private static bool EventOwnerHasPlus(Event ev, Dictionary<Guid, TripPlanner.Api.Domain.Users.User> users)
+    {
+        if (ev.OwnerOrganizerId is null) return false;
+
+        var ownerUserId = ev.Organizers
+            .Where(o => o.EventMemberId == ev.OwnerOrganizerId && o.Status == MembershipStatus.Active)
+            .Select(o => (Guid?)o.UserId)
+            .FirstOrDefault();
+
+        return ownerUserId is not null &&
+               users.TryGetValue(ownerUserId.Value, out var owner) &&
+               owner.SubscriptionPlan == SubscriptionPlan.Plus &&
+               (owner.PlusExpiresAtUtc is null || owner.PlusExpiresAtUtc > DateTime.UtcNow);
     }
 
     private static bool IsActiveOrganizer(Event ev, Guid userId)
@@ -783,6 +799,7 @@ public sealed class OrganizerWorkspaceDto
     public double DestinationLatitude { get; set; }
     public double DestinationLongitude { get; set; }
     public string? ThumbnailUrl { get; set; }
+    public bool IsPlusEnabled { get; set; }
     public List<OrganizerDayDto> Days { get; set; } = new();
     public List<OrganizerMemberDto> Members { get; set; } = new();
 }

@@ -267,6 +267,32 @@ public sealed class AuthModule
         await client.DisconnectAsync(true, ct);
     }
 
+    private async Task SendPasswordResetEmail(string email, string otp, CancellationToken ct)
+    {
+        var host = _config["Email:Host"];
+        var port = int.Parse(_config["Email:Port"]!);
+        var username = _config["Email:Username"];
+        var password = _config["Email:Password"];
+        var from = _config["Email:From"];
+
+        var message = new MimeMessage();
+        message.From.Add(MailboxAddress.Parse(from));
+        message.To.Add(MailboxAddress.Parse(email));
+        message.Subject = "TripMate Password Reset";
+
+        message.Body = new TextPart("plain")
+        {
+            Text = $"Your password reset code is: {otp}\n\nThis code expires in 10 minutes."
+        };
+
+        using var client = new SmtpClient();
+
+        await client.ConnectAsync(host, port, SecureSocketOptions.StartTls, ct);
+        await client.AuthenticateAsync(username, password, ct);
+        await client.SendAsync(message, ct);
+        await client.DisconnectAsync(true, ct);
+    }
+
 
     public async Task ResendOtp(ResendOtpRequest req, CancellationToken ct)
 {
@@ -289,6 +315,52 @@ public sealed class AuthModule
 
     await _db.SaveChangesAsync(ct);
 }
+
+    public async Task ForgotPassword(ForgotPasswordRequest req, CancellationToken ct)
+    {
+        var email = req.Email.Trim().ToLowerInvariant();
+
+        var user = await _db.Users
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
+
+        if (user is null || user.AccountStatus != Domain.AccountStatus.Active)
+            return;
+
+        var otp = RandomNumberGenerator.GetInt32(100000, 999999).ToString();
+        user.EmailVerificationCodeHash = Sha256(otp);
+        user.EmailVerificationExpiresAt = DateTime.UtcNow.AddMinutes(10);
+
+        await SendPasswordResetEmail(email, otp, ct);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task ResetPassword(ResetPasswordRequest req, CancellationToken ct)
+    {
+        var email = req.Email.Trim().ToLowerInvariant();
+
+        var user = await _db.Users
+            .Include(u => u.RefreshTokens)
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
+
+        Guard.Ensure(user is not null, "Invalid reset code.");
+        Guard.Ensure(user.AccountStatus == Domain.AccountStatus.Active, "Account is not active.");
+        Guard.Ensure(user.EmailVerificationCodeHash != null, "Reset code not generated.");
+        Guard.Ensure(user.EmailVerificationExpiresAt > DateTime.UtcNow, "Reset code expired.");
+        Guard.Ensure(Sha256(req.Otp) == user.EmailVerificationCodeHash, "Invalid reset code.");
+
+        var (hash, salt) = HashPassword(req.NewPassword);
+        user.ChangePassword(hash, salt);
+        user.EmailVerified = true;
+        user.EmailVerificationCodeHash = null;
+        user.EmailVerificationExpiresAt = null;
+
+        foreach (var token in user.RefreshTokens.Where(t => t.Status == RefreshTokenStatus.Active && t.RevokedAt == null))
+        {
+            token.Revoke();
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
 
     // -------- JWT --------
     private (string Token, DateTime ExpiresAtUtc) CreateAccessToken(User user)

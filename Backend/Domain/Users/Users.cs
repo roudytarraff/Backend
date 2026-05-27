@@ -92,6 +92,12 @@ public sealed class User
     public void UpdateProfilePicture(string? url)
         => ProfilePictureUrl = Guard.UrlOrNull(url, nameof(ProfilePictureUrl), 2048);
 
+    public void ChangePassword(string passwordHash, string passwordSalt)
+    {
+        PasswordHash = Guard.Required(passwordHash, nameof(PasswordHash), 500);
+        PasswordSalt = Guard.Required(passwordSalt, nameof(PasswordSalt), 500);
+    }
+
     public RefreshToken IssueRefreshToken(string tokenHash, DateTime expiresAtUtc)
     {
         Guard.Ensure(expiresAtUtc > DateTime.UtcNow, "Refresh token expiry must be in the future.");

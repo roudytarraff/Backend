@@ -54,3 +54,21 @@ public sealed class ResendOtpRequest
 {
     public string Email { get; set; } = string.Empty;
 }
+
+public sealed class ForgotPasswordRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public sealed class ResetPasswordRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+
+    [Required]
+    public string Otp { get; set; } = string.Empty;
+
+    [Required, MinLength(8), MaxLength(100)]
+    public string NewPassword { get; set; } = string.Empty;
+}

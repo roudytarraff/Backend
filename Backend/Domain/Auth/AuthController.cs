@@ -59,4 +59,24 @@ public sealed class AuthController : ControllerBase
 
         return Ok();
     }
+
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest req, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        await _auth.ForgotPassword(req, ct);
+
+        return Ok(new { message = "If this email exists, a reset code was sent." });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest req, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        await _auth.ResetPassword(req, ct);
+
+        return Ok(new { message = "Password reset successfully." });
+    }
 }

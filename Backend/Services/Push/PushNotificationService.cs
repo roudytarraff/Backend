@@ -99,25 +99,15 @@ public sealed class PushNotificationService
         {
             try
             {
-                var isDriverCall = payload.TryGetValue("type", out var type) && type == "driver-call";
                 await messaging.SendAsync(new Message
                 {
                     Token = token,
-                    Notification = isDriverCall
-                        ? null
-                        : new Notification
-                    {
-                        Title = title,
-                        Body = body
-                    },
+                    Notification = null,
                     Data = payload,
                     Android = new AndroidConfig
                     {
                         Priority = Priority.High,
-                        Notification = new AndroidNotification
-                        {
-                            ChannelId = isDriverCall ? "tripmate-calls" : "tripmate-live"
-                        }
+                        Notification = null
                     },
                     Apns = new ApnsConfig
                     {

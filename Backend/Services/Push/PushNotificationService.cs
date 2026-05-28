@@ -76,6 +76,13 @@ public sealed class PushNotificationService
         Dictionary<string, string>? data = null,
         CancellationToken ct = default)
     {
+        var hasTitle = !string.IsNullOrWhiteSpace(title);
+        var hasBody = !string.IsNullOrWhiteSpace(body);
+        var hasType = data is not null &&
+                      data.TryGetValue("type", out var type) &&
+                      !string.IsNullOrWhiteSpace(type);
+        if (!hasTitle && !hasBody && !hasType) return;
+
         var messaging = _messaging.Value;
         if (messaging is null) return;
 
@@ -91,8 +98,10 @@ public sealed class PushNotificationService
         if (tokens.Count == 0) return;
 
         var payload = NormalizeData(data);
-        payload["title"] = title;
-        payload["body"] = body;
+        if (hasTitle) payload["title"] = title.Trim();
+        if (hasBody) payload["body"] = body.Trim();
+        payload.TryAdd("sentAt", DateTime.UtcNow.ToString("O"));
+        payload.TryAdd("notificationId", NotificationId(payload, title, body));
         var staleTokens = new List<string>();
 
         foreach (var token in tokens)
@@ -202,5 +211,27 @@ public sealed class PushNotificationService
         }
 
         return normalized;
+    }
+
+    private static string NotificationId(IReadOnlyDictionary<string, string> data, string title, string body)
+    {
+        var type = data.TryGetValue("type", out var t) ? t : "notification";
+        var eventId = data.TryGetValue("eventId", out var e) ? e : "event";
+        if (data.TryGetValue("messageId", out var messageId) && !string.IsNullOrWhiteSpace(messageId))
+        {
+            return $"{type}:{eventId}:{messageId}";
+        }
+        if (data.TryGetValue("callId", out var callId) && !string.IsNullOrWhiteSpace(callId))
+        {
+            return $"{type}:{eventId}:{callId}";
+        }
+
+        var detail = data.TryGetValue("activityId", out var activityId) && !string.IsNullOrWhiteSpace(activityId)
+            ? activityId
+            : data.TryGetValue("reason", out var reason) && !string.IsNullOrWhiteSpace(reason)
+                ? reason
+                : $"{title}:{body}".GetHashCode().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        return $"{type}:{eventId}:{detail}";
     }
 }

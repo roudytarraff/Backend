@@ -89,7 +89,7 @@ public sealed class EventVoiceController : ControllerBase
             ? "Event member"
             : $"{user.FirstName} {user.LastName}".Trim();
         var roomName = $"event-{eventId}";
-        var identity = $"{eventId}:{member.EventMemberId}:{Guid.NewGuid():N}";
+        var identity = $"{eventId}:{member.EventMemberId}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {
             eventId,
@@ -312,7 +312,7 @@ public sealed class EventVoiceController : ControllerBase
 
         var displayName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}".Trim();
         var roomName = $"event-{eventId}-driver-{driver.EventMemberId}";
-        var identity = $"{eventId}:driver-call:{caller.EventMemberId}:{Guid.NewGuid():N}";
+        var identity = $"{eventId}:driver-call:{caller.EventMemberId}:{driver.EventMemberId}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {
             eventId,

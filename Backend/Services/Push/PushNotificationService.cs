@@ -91,6 +91,8 @@ public sealed class PushNotificationService
         if (tokens.Count == 0) return;
 
         var payload = NormalizeData(data);
+        payload["title"] = title;
+        payload["body"] = body;
         var staleTokens = new List<string>();
 
         foreach (var token in tokens)

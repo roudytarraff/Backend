@@ -689,18 +689,21 @@ public sealed class OrganizerWorkspaceController : ControllerBase
             UpdatedAt = DateTime.UtcNow
         });
 
-        await _push.SendToEventAsync(
-            eventId,
-            "TripMate schedule update",
-            ActivityNotificationBody(reason, activity.Title),
-            new Dictionary<string, string>
-            {
-                ["type"] = "event-update",
-                ["eventId"] = eventId.ToString(),
-                ["activityId"] = activity.ActivityId.ToString(),
-                ["activityTitle"] = activity.Title,
-                ["reason"] = reason
-            });
+        if (ShouldPushActivityNotification(reason))
+        {
+            await _push.SendToEventAsync(
+                eventId,
+                "TripMate schedule update",
+                ActivityNotificationBody(reason, activity.Title),
+                new Dictionary<string, string>
+                {
+                    ["type"] = "event-update",
+                    ["eventId"] = eventId.ToString(),
+                    ["activityId"] = activity.ActivityId.ToString(),
+                    ["activityTitle"] = activity.Title,
+                    ["reason"] = reason
+                });
+        }
     }
 
     private async Task BroadcastDetailsChanged(Guid eventId, string reason)
@@ -723,6 +726,13 @@ public sealed class OrganizerWorkspaceController : ControllerBase
                 ["reason"] = reason
             });
     }
+
+    private static bool ShouldPushActivityNotification(string reason) => reason switch
+    {
+        "DriverAssigned" => false,
+        "DriverLocationApplied" => false,
+        _ => true
+    };
 
     private Guid? GetUserIdFromClaims()
     {

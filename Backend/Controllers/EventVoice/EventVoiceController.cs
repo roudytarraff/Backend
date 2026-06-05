@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using Backend.Services.Billing;
 using Backend.Services.Push;
@@ -17,14 +18,24 @@ namespace Backend.Controllers.EventVoice;
 [Authorize]
 public sealed class EventVoiceController : ControllerBase
 {
+    private static readonly ConcurrentDictionary<Guid, DriverCallState> ActiveDriverCalls = new();
+    private static readonly TimeSpan DriverCallTtl = TimeSpan.FromMinutes(10);
+
     private readonly AppDbContext _db;
+    private readonly IHubContext<Hubs.EventHub> _hubContext;
     private readonly LiveKitTokenService _liveKit;
     private readonly PlanLimitService _plans;
     private readonly PushNotificationService _push;
 
-    public EventVoiceController(AppDbContext db, LiveKitTokenService liveKit, PlanLimitService plans, PushNotificationService push)
+    public EventVoiceController(
+        AppDbContext db,
+        IHubContext<Hubs.EventHub> hubContext,
+        LiveKitTokenService liveKit,
+        PlanLimitService plans,
+        PushNotificationService push)
     {
         _db = db;
+        _hubContext = hubContext;
         _liveKit = liveKit;
         _plans = plans;
         _push = push;
@@ -134,9 +145,16 @@ public sealed class EventVoiceController : ControllerBase
         if (driver.EventMemberId == organizer.EventMemberId) return BadRequest("You cannot call yourself as the driver.");
 
         var callId = Guid.NewGuid();
+        PruneExpiredCalls();
+        ActiveDriverCalls[callId] = new DriverCallState(
+            callId,
+            eventId,
+            req.ActivityId,
+            driver.EventMemberId,
+            organizer.EventMemberId,
+            DateTime.UtcNow);
 
-        await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
-            .Clients.Group($"event-{eventId}")
+        await _hubContext.Clients.Group($"event-{eventId}")
             .SendAsync("DriverCallRequested", new
             {
                 EventId = eventId,
@@ -183,9 +201,27 @@ public sealed class EventVoiceController : ControllerBase
         var driver = FindActiveMember(ev, req.DriverParticipantId);
         if (driver?.UserId != userId.Value) driver = null;
         if (driver is null) return Forbid();
+        if (req.CallId is null) return BadRequest("Call id is required.");
 
-        await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
-            .Clients.Group($"event-{eventId}")
+        PruneExpiredCalls();
+        if (!ActiveDriverCalls.TryGetValue(req.CallId.Value, out var call) ||
+            call.EventId != eventId ||
+            call.DriverParticipantId != driver.EventMemberId ||
+            call.ActivityId != req.ActivityId)
+        {
+            return BadRequest("This driver call is no longer active.");
+        }
+
+        if (req.Accepted)
+        {
+            ActiveDriverCalls[req.CallId.Value] = call with { AcceptedAt = DateTime.UtcNow };
+        }
+        else
+        {
+            ActiveDriverCalls.TryRemove(req.CallId.Value, out _);
+        }
+
+        await _hubContext.Clients.Group($"event-{eventId}")
             .SendAsync("DriverCallAnswered", new
             {
                 EventId = eventId,
@@ -198,7 +234,9 @@ public sealed class EventVoiceController : ControllerBase
 
         await _push.SendToEventMembersAsync(
             eventId,
-            ev.Organizers.Where(o => o.Status == MembershipStatus.Active).Select(o => o.EventMemberId),
+            ev.Organizers
+                .Where(o => o.Status == MembershipStatus.Active && o.EventMemberId == call.RequestedByMemberId)
+                .Select(o => o.EventMemberId),
             req.Accepted ? "Driver answered" : "Driver declined",
             req.Accepted ? "The driver answered your call." : "The driver declined your call.",
             new Dictionary<string, string>
@@ -234,9 +272,12 @@ public sealed class EventVoiceController : ControllerBase
 
         var driver = FindActiveMember(ev, req.DriverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
+        if (req.CallId is not null)
+        {
+            ActiveDriverCalls.TryRemove(req.CallId.Value, out _);
+        }
 
-        await HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<Hubs.EventHub>>()
-            .Clients.Group($"event-{eventId}")
+        await _hubContext.Clients.Group($"event-{eventId}")
             .SendAsync("DriverCallAnswered", new
             {
                 EventId = eventId,
@@ -299,10 +340,21 @@ public sealed class EventVoiceController : ControllerBase
         var driver = FindActiveMember(ev, req.DriverParticipantId);
         if (driver is null) return NotFound("Driver not found.");
         if (driver is Organizer) return BadRequest("Organizer drivers use the event voice channel.");
+        if (req.CallId is null) return BadRequest("Call id is required.");
+
+        PruneExpiredCalls();
+        if (!ActiveDriverCalls.TryGetValue(req.CallId.Value, out var call) ||
+            call.EventId != eventId ||
+            call.DriverParticipantId != driver.EventMemberId ||
+            call.ActivityId != req.ActivityId ||
+            call.AcceptedAt is null)
+        {
+            return BadRequest("This driver call is no longer active.");
+        }
 
         var callerIsOrganizer = caller is Organizer;
         var callerIsDriver = caller.EventMemberId == driver.EventMemberId;
-        if (!callerIsOrganizer && !callerIsDriver) return Forbid();
+        if (!callerIsDriver && caller.EventMemberId != call.RequestedByMemberId) return Forbid();
 
         var user = await _db.Users
             .AsNoTracking()
@@ -312,11 +364,12 @@ public sealed class EventVoiceController : ControllerBase
 
         var displayName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}".Trim();
         var roomName = $"event-{eventId}-driver-{driver.EventMemberId}";
-        var identity = $"{eventId}:driver-call:{caller.EventMemberId}:{driver.EventMemberId}";
+        var identity = $"{eventId}:driver-call:{req.CallId}:{caller.EventMemberId}:{driver.EventMemberId}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {
             eventId,
             req.ActivityId,
+            req.CallId,
             caller.EventMemberId,
             caller.UserId,
             driverParticipantId = driver.EventMemberId,
@@ -346,12 +399,36 @@ public sealed class EventVoiceController : ControllerBase
         => ev.Organizers.Cast<EventMember>()
             .Concat(ev.Participants)
             .FirstOrDefault(m => m.EventMemberId == eventMemberId && m.Status == MembershipStatus.Active);
+
+    private static void PruneExpiredCalls()
+    {
+        var cutoff = DateTime.UtcNow - DriverCallTtl;
+        foreach (var item in ActiveDriverCalls)
+        {
+            if (item.Value.RequestedAt < cutoff)
+            {
+                ActiveDriverCalls.TryRemove(item.Key, out _);
+            }
+        }
+    }
+}
+
+internal sealed record DriverCallState(
+    Guid CallId,
+    Guid EventId,
+    Guid? ActivityId,
+    Guid DriverParticipantId,
+    Guid RequestedByMemberId,
+    DateTime RequestedAt)
+{
+    public DateTime? AcceptedAt { get; init; }
 }
 
 public sealed class DriverCallRequest
 {
     public Guid DriverParticipantId { get; set; }
     public Guid? ActivityId { get; set; }
+    public Guid? CallId { get; set; }
 }
 
 public sealed class DriverCallResponse

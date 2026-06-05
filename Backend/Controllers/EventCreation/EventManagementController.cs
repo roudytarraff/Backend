@@ -168,6 +168,91 @@ public sealed class EventManagementController : ControllerBase
         return Ok(await ToDetailsDto(ev, userId.Value, ct));
     }
 
+    [HttpGet("guest/{eventId:guid}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetGuestEvent(Guid eventId, CancellationToken ct)
+    {
+        var ev = await _db.Events
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(e => e.Organizers)
+            .Include(e => e.Participants)
+            .Include(e => e.EventDays)
+                .ThenInclude(d => d.Activities)
+            .FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+
+        if (ev is null) return NotFound("Event not found.");
+
+        var memberUserIds = ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .Where(m => m.Status == MembershipStatus.Active)
+            .Select(m => m.UserId)
+            .Distinct()
+            .ToList();
+        var users = memberUserIds.Count == 0
+            ? new Dictionary<Guid, TripPlanner.Api.Domain.Users.User>()
+            : await _db.Users.AsNoTracking()
+                .Where(u => memberUserIds.Contains(u.UserId))
+                .ToDictionaryAsync(u => u.UserId, ct);
+
+        return Ok(ToGuestEventDto(ev, users));
+    }
+
+    [HttpGet("~/guest/events/{eventId:guid}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GuestLanding(Guid eventId, CancellationToken ct)
+    {
+        var ev = await _db.Events.AsNoTracking()
+            .Where(e => e.EventId == eventId)
+            .Select(e => new { e.EventId, e.Title, e.DestinationName, e.ThumbnailUrl })
+            .FirstOrDefaultAsync(ct);
+        if (ev is null) return NotFound("Event not found.");
+
+        var deepLink = $"tripmate://guest/events/{eventId}";
+        var apiLink = $"/api/events/guest/{eventId}";
+        var title = System.Net.WebUtility.HtmlEncode(ev.Title);
+        var destination = System.Net.WebUtility.HtmlEncode(ev.DestinationName);
+        var image = System.Net.WebUtility.HtmlEncode(ev.ThumbnailUrl ?? "");
+        var html = $$"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{title}} - TripMate</title>
+  <meta property="og:title" content="{{title}}" />
+  <meta property="og:description" content="Preview this TripMate event in the app." />
+  <meta property="og:image" content="{{image}}" />
+  <style>
+    body{margin:0;font-family:Inter,Arial,sans-serif;background:#0e1324;color:#fff;min-height:100vh;display:grid;place-items:center}
+    .card{width:min(92vw,460px);border-radius:28px;overflow:hidden;background:#fff;color:#171b2e;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+    .hero{height:230px;background:#243b8f center/cover no-repeat;display:flex;align-items:flex-end;padding:24px;box-sizing:border-box}
+    .hero h1{margin:0;font-size:34px;line-height:1.05;color:white;text-shadow:0 4px 18px rgba(0,0,0,.45)}
+    .body{padding:24px}.dest{font-weight:800;color:#4356c8;margin-bottom:18px}
+    a{display:block;text-align:center;background:#4356c8;color:white;text-decoration:none;border-radius:18px;padding:16px;font-weight:900}
+    .small{margin-top:14px;color:#64748b;font-size:13px;line-height:1.5}
+  </style>
+  <script>
+    setTimeout(function(){ window.location.href = "{{deepLink}}"; }, 300);
+  </script>
+</head>
+<body>
+  <main class="card">
+    <section class="hero" style="background-image:linear-gradient(rgba(0,0,0,.18),rgba(0,0,0,.5)),url('{{image}}')">
+      <h1>{{title}}</h1>
+    </section>
+    <section class="body">
+      <div class="dest">{{destination}}</div>
+      <a href="{{deepLink}}">Open in TripMate</a>
+      <p class="small">If TripMate is not installed, install it first, then open this link again. Public preview data is available at <code>{{apiLink}}</code>.</p>
+    </section>
+  </main>
+</body>
+</html>
+""";
+        return Content(html, "text/html");
+    }
+
     [HttpPut("{eventId}")]
     public async Task<IActionResult> UpdateEvent(Guid eventId, [FromBody] UpdateEventRequest req, CancellationToken ct)
     {
@@ -580,11 +665,25 @@ public sealed class EventManagementController : ControllerBase
             .Where(m => m.Status == MembershipStatus.Active)
             .ToList();
         var currentMember = activeMembers.FirstOrDefault(m => m.UserId == userId);
+        var currentIsAssignedDriver = currentMember is not null &&
+            ev.EventDays.SelectMany(d => d.Activities)
+                .Any(a => a.DriverParticipantId == currentMember.EventMemberId);
         var visibleMembers = currentMember is null
             ? new List<EventMember>()
             : activeMembers
                 .Where(m => m.EventMemberId != currentMember.EventMemberId && ev.CanViewLocation(userId, m.UserId))
                 .ToList();
+        if (currentIsAssignedDriver)
+        {
+            var visibleIds = visibleMembers.Select(m => m.EventMemberId).ToHashSet();
+            foreach (var organizer in ev.Organizers.Where(o => o.Status == MembershipStatus.Active && o.EventMemberId != currentMember!.EventMemberId))
+            {
+                if (visibleIds.Add(organizer.EventMemberId))
+                {
+                    visibleMembers.Add(organizer);
+                }
+            }
+        }
         var visibleUserIds = visibleMembers.Select(m => m.UserId).Distinct().ToList();
         var visibleUsers = visibleUserIds.Count == 0
             ? new Dictionary<Guid, TripPlanner.Api.Domain.Users.User>()
@@ -733,6 +832,65 @@ public sealed class EventManagementController : ControllerBase
             LocationRecordedAt = point?.RecordedAt
         };
     }
+
+    private static GuestEventDto ToGuestEventDto(Event ev, Dictionary<Guid, TripPlanner.Api.Domain.Users.User> users)
+    {
+        var activeMembers = ev.Organizers.Cast<EventMember>()
+            .Concat(ev.Participants)
+            .Where(m => m.Status == MembershipStatus.Active)
+            .ToList();
+
+        return new GuestEventDto
+        {
+            EventId = ev.EventId,
+            Title = ev.Title,
+            Description = ev.Description,
+            EventType = ev.EventType,
+            StartDate = ev.StartDate,
+            EndDate = ev.EndDate,
+            DestinationName = ev.DestinationName,
+            DestinationLatitude = ev.DestinationLatitude,
+            DestinationLongitude = ev.DestinationLongitude,
+            ThumbnailUrl = ev.ThumbnailUrl,
+            OrganizersCount = ev.Organizers.Count(o => o.Status == MembershipStatus.Active),
+            ParticipantsCount = ev.Participants.Count(p => p.Status == MembershipStatus.Active),
+            Members = activeMembers
+                .Select(m =>
+                {
+                    users.TryGetValue(m.UserId, out var user);
+                    return new GuestMemberDto
+                    {
+                        FullName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}".Trim(),
+                        ProfilePictureUrl = user?.ProfilePictureUrl,
+                        Role = m.EventMemberId == ev.OwnerOrganizerId ? "Owner" : m is Organizer ? "Organizer" : "Participant"
+                    };
+                })
+                .OrderBy(m => m.Role == "Owner" ? 0 : m.Role == "Organizer" ? 1 : 2)
+                .ThenBy(m => m.FullName)
+                .ToList(),
+            Days = ev.EventDays
+                .OrderBy(d => d.Date)
+                .ThenBy(d => d.DayOrder)
+                .Select((day, index) => new GuestEventDayDto
+                {
+                    Title = string.IsNullOrWhiteSpace(day.Title) ? $"Day {index + 1}" : day.Title,
+                    Date = day.Date,
+                    Activities = day.Activities
+                        .OrderBy(a => a.ActivityOrder)
+                        .Select(a => new GuestActivityDto
+                        {
+                            Title = a.Title,
+                            Type = a.Type,
+                            StartTime = a.StartTime,
+                            EndTime = a.EndTime,
+                            LocationName = a.LocationName,
+                            ThumbnailUrl = a.ThumbnailUrl
+                        })
+                        .ToList()
+                })
+                .ToList()
+        };
+    }
 }
 
 public sealed class UpdateEventRequest
@@ -868,4 +1026,46 @@ public sealed class ActivityStepDetailsDto
     public int StepOrder { get; set; }
     public string Description { get; set; } = string.Empty;
     public bool IsMandatory { get; set; }
+}
+
+public sealed class GuestEventDto
+{
+    public Guid EventId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public string DestinationName { get; set; } = string.Empty;
+    public double DestinationLatitude { get; set; }
+    public double DestinationLongitude { get; set; }
+    public string? ThumbnailUrl { get; set; }
+    public int OrganizersCount { get; set; }
+    public int ParticipantsCount { get; set; }
+    public List<GuestMemberDto> Members { get; set; } = new();
+    public List<GuestEventDayDto> Days { get; set; } = new();
+}
+
+public sealed class GuestMemberDto
+{
+    public string FullName { get; set; } = string.Empty;
+    public string? ProfilePictureUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
+}
+
+public sealed class GuestEventDayDto
+{
+    public string Title { get; set; } = string.Empty;
+    public DateTime Date { get; set; }
+    public List<GuestActivityDto> Activities { get; set; } = new();
+}
+
+public sealed class GuestActivityDto
+{
+    public string Title { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public DateTime? StartTime { get; set; }
+    public DateTime? EndTime { get; set; }
+    public string LocationName { get; set; } = string.Empty;
+    public string? ThumbnailUrl { get; set; }
 }

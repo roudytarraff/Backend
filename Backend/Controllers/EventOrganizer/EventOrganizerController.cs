@@ -111,6 +111,47 @@ public sealed class EventOrganizerController : ControllerBase
         });
     }
 
+    [HttpPost("reschedule")]
+    public async Task<IActionResult> Reschedule(Guid eventId, [FromBody] RescheduleEventRequest req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var ev = await LoadEventWithMembers(eventId, ct);
+        if (ev is null) return NotFound("Event not found.");
+        if (!IsActiveOrganizer(ev, userId.Value)) return Forbid();
+        if (ev.Status != EventStatus.Draft) return BadRequest("Event can only be rescheduled before it starts.");
+
+        var nextStartDate = DateTime.SpecifyKind(req.StartDate, DateTimeKind.Utc);
+        var dayDelta = (nextStartDate.Date - ev.StartDate.Date).Days;
+        ev.Reschedule(userId.Value, nextStartDate);
+        await _db.SaveChangesAsync(ct);
+        if (dayDelta != 0)
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE [EventDays]
+                SET [Date] = DATEADD(day, {dayDelta}, [Date])
+                WHERE [EventId] = {eventId};
+
+                UPDATE [Activities]
+                SET [StartTime] = CASE WHEN [StartTime] IS NULL THEN NULL ELSE DATEADD(day, {dayDelta}, [StartTime]) END,
+                    [EndTime] = CASE WHEN [EndTime] IS NULL THEN NULL ELSE DATEADD(day, {dayDelta}, [EndTime]) END
+                WHERE [EventDayId] IN (
+                    SELECT [EventDayId]
+                    FROM [EventDays]
+                    WHERE [EventId] = {eventId}
+                );
+
+                UPDATE [Events]
+                SET [EndDate] = CASE WHEN [EndDate] IS NULL THEN NULL ELSE DATEADD(day, {dayDelta}, [EndDate]) END
+                WHERE [EventId] = {eventId};
+                """, ct);
+        }
+        await BroadcastDetailsChanged(eventId, "EventRescheduled");
+
+        return Ok(new { ev.EventId, ev.StartDate });
+    }
+
     [HttpGet("members")]
     public async Task<IActionResult> Members(Guid eventId, CancellationToken ct)
     {
@@ -133,6 +174,20 @@ public sealed class EventOrganizerController : ControllerBase
             .AsNoTracking()
             .Where(u => memberUserIds.Contains(u.UserId))
             .ToDictionaryAsync(u => u.UserId, ct);
+        var eventDayIds = await _db.EventDays
+            .AsNoTracking()
+            .Where(d => d.EventId == eventId)
+            .Select(d => d.EventDayId)
+            .ToListAsync(ct);
+        var assignedDriverIds = eventDayIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await _db.Activities
+                .AsNoTracking()
+                .Where(a => eventDayIds.Contains(a.EventDayId) && a.DriverParticipantId != null)
+                .Select(a => a.DriverParticipantId!.Value)
+                .Distinct()
+                .ToListAsync(ct))
+            .ToHashSet();
 
         var members = ev.Organizers
             .Cast<EventMember>()
@@ -150,6 +205,7 @@ public sealed class EventOrganizerController : ControllerBase
                     ProfilePictureUrl = user?.ProfilePictureUrl,
                     Role = m.EventMemberId == ev.OwnerOrganizerId ? "Owner" : m is Organizer ? "Organizer" : "Participant",
                     ParticipantMode = m is Participant p ? p.Mode : null,
+                    IsAssignedDriver = assignedDriverIds.Contains(m.EventMemberId),
                     JoinedAt = m.JoinedAt
                 };
             })
@@ -270,16 +326,19 @@ public sealed class EventOrganizerController : ControllerBase
             UpdatedAt = DateTime.UtcNow
         });
 
-        await _push.SendToEventAsync(
-            eventId,
-            "TripMate event update",
-            NotificationBody(reason),
-            new Dictionary<string, string>
-            {
-                ["type"] = "event-update",
-                ["eventId"] = eventId.ToString(),
-                ["reason"] = reason
-            });
+        if (ShouldPushNotification(reason))
+        {
+            await _push.SendToEventAsync(
+                eventId,
+                "TripMate event update",
+                NotificationBody(reason),
+                new Dictionary<string, string>
+                {
+                    ["type"] = "event-update",
+                    ["eventId"] = eventId.ToString(),
+                    ["reason"] = reason
+                });
+        }
     }
 
     private async Task SafeBroadcastDetailsChanged(Guid eventId, string reason)
@@ -304,11 +363,26 @@ public sealed class EventOrganizerController : ControllerBase
     {
         "EventStarted" => "The event started.",
         "EventEnded" => "The event ended.",
+        "EventRescheduled" => "The event schedule was changed.",
+        "EventCancelled" => "The event was cancelled.",
         "MemberRemoved" => "A member was removed from the event.",
         "MemberPromoted" => "A participant was promoted to organizer.",
         "MemberDemoted" => "An organizer was changed to participant.",
         "EventDetailsUpdated" => "Event details were updated.",
         _ => "The event was updated."
+    };
+
+    private static bool ShouldPushNotification(string reason) => reason switch
+    {
+        "MemberRemoved" => false,
+        "MemberLeft" => false,
+        "MemberPromoted" => false,
+        "MemberDemoted" => false,
+        "ParticipantModeChanged" => false,
+        "OrganizerAdded" => false,
+        "DriverAssigned" => false,
+        "DriverLocationApplied" => false,
+        _ => true
     };
 }
 
@@ -320,6 +394,11 @@ public sealed class UpdateOrganizerEventRequest
     public IFormFile? CoverImage { get; set; }
 }
 
+public sealed class RescheduleEventRequest
+{
+    public DateTime StartDate { get; set; }
+}
+
 public sealed class EventMemberDto
 {
     public Guid EventMemberId { get; set; }
@@ -329,5 +408,6 @@ public sealed class EventMemberDto
     public string? ProfilePictureUrl { get; set; }
     public string Role { get; set; } = string.Empty;
     public ParticipantMode? ParticipantMode { get; set; }
+    public bool IsAssignedDriver { get; set; }
     public DateTime JoinedAt { get; set; }
 }

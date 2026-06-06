@@ -363,7 +363,7 @@ public sealed class EventVoiceController : ControllerBase
             .FirstOrDefaultAsync(ct);
 
         var displayName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}".Trim();
-        var roomName = $"event-{eventId}-driver-{driver.EventMemberId}";
+        var roomName = $"event-{eventId}-driver-{driver.EventMemberId}-{req.CallId}";
         var identity = $"{eventId}:driver-call:{req.CallId}:{caller.EventMemberId}:{driver.EventMemberId}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {

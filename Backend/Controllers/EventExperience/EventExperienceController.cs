@@ -370,7 +370,10 @@ public sealed class EventExperienceController : ControllerBase
 
         await _push.SendToEventMembersAsync(
             eventId,
-            ev.Organizers.Cast<EventMember>().Append(driver).Where(m => m.EventMemberId != sender.EventMemberId).Select(m => m.EventMemberId),
+            ev.Organizers.Cast<EventMember>()
+                .Append(driver)
+                .Where(m => m.EventMemberId != sender.EventMemberId && m.UserId != sender.UserId)
+                .Select(m => m.EventMemberId),
             "Driver chat",
             $"{dto.SenderName}: {dto.Content}",
             new Dictionary<string, string>

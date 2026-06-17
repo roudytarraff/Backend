@@ -16,7 +16,7 @@ public sealed record PlanLimits(
 
 public sealed class PlanLimitService
 {
-    public const string PlusProductId = "tripmate_plus_monthly";
+    public const string PlusProductId = "tripconnect_plus_monthly";
 
     public static readonly PlanLimits Free = new(
         SubscriptionPlan.Free,
@@ -28,7 +28,7 @@ public sealed class PlanLimitService
 
     public static readonly PlanLimits Plus = new(
         SubscriptionPlan.Plus,
-        "TripMate Plus",
+        "TripConnect Plus",
         EventsPerMonth: 20,
         ParticipantsPerEvent: 100,
         VoiceEnabled: true,
@@ -59,7 +59,9 @@ public sealed class PlanLimitService
             ParticipantsPerEvent = limits.ParticipantsPerEvent,
             VoiceEnabled = limits.VoiceEnabled,
             DriverCallsEnabled = limits.DriverCallsEnabled,
-            PlusProductId = PlusProductId
+            PlusProductId = PlusProductId,
+            BillingPlatform = user.BillingPlatform,
+            BillingProductId = user.BillingProductId
         };
     }
 
@@ -71,7 +73,7 @@ public sealed class PlanLimitService
 
         Guard.Ensure(
             usedEvents < limits.EventsPerMonth,
-            $"Your {limits.Name} plan allows {limits.EventsPerMonth} events per month. Upgrade to TripMate Plus for 20 events per month.");
+            $"Your {limits.Name} plan allows {limits.EventsPerMonth} events per month. Upgrade to TripConnect Plus for 20 events per month.");
     }
 
     public Task EnsureCanCreateEvent(AppDbContext db, Guid ownerUserId, CancellationToken ct)
@@ -97,7 +99,7 @@ public sealed class PlanLimitService
         var owner = await db.Users.AsNoTracking().FirstAsync(u => u.UserId == ownerUserId, ct);
         var limits = GetLimits(owner);
 
-        Guard.Ensure(limits.VoiceEnabled, "Walkie-talkie is available with TripMate Plus.");
+        Guard.Ensure(limits.VoiceEnabled, "Walkie-talkie is available with TripConnect Plus.");
     }
 
     public async Task EnsureDriverCallsAllowed(AppDbContext db, Guid eventId, CancellationToken ct)
@@ -106,7 +108,7 @@ public sealed class PlanLimitService
         var owner = await db.Users.AsNoTracking().FirstAsync(u => u.UserId == ownerUserId, ct);
         var limits = GetLimits(owner);
 
-        Guard.Ensure(limits.DriverCallsEnabled, "Driver calls and driver chat are available with TripMate Plus.");
+        Guard.Ensure(limits.DriverCallsEnabled, "Driver calls and driver chat are available with TripConnect Plus.");
     }
 
     private static async Task<int> CountOwnedEventsThisMonth(AppDbContext db, Guid ownerUserId, DateTime monthStartUtc, CancellationToken ct)
@@ -148,4 +150,6 @@ public sealed class BillingSnapshot
     public bool VoiceEnabled { get; set; }
     public bool DriverCallsEnabled { get; set; }
     public string PlusProductId { get; set; } = string.Empty;
+    public string? BillingPlatform { get; set; }
+    public string? BillingProductId { get; set; }
 }

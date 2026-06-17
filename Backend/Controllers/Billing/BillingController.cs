@@ -63,7 +63,7 @@ public sealed class BillingController : ControllerBase
                 },
                 new
                 {
-                    Plan = "TripMate Plus",
+                    Plan = "TripConnect Plus",
                     ProductId = PlanLimitService.PlusProductId,
                     Price = "Store price",
                     EventsPerMonth = PlanLimitService.Plus.EventsPerMonth,
@@ -106,6 +106,21 @@ public sealed class BillingController : ControllerBase
             validation.TransactionId,
             validation.ExpiresAtUtc);
 
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(await _plans.GetSnapshot(_db, user.UserId, ct));
+    }
+
+    [HttpPost("cancel-plus")]
+    public async Task<IActionResult> CancelPlus(CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == userId.Value, ct);
+        if (user is null) return Unauthorized();
+
+        user.RevertToFree();
         await _db.SaveChangesAsync(ct);
 
         return Ok(await _plans.GetSnapshot(_db, user.UserId, ct));

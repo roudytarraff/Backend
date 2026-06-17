@@ -80,6 +80,9 @@ public sealed class User
     {
         SubscriptionPlan = SubscriptionPlan.Free;
         PlusExpiresAtUtc = null;
+        BillingPlatform = null;
+        BillingProductId = null;
+        BillingTransactionId = null;
         BillingUpdatedAtUtc = DateTime.UtcNow;
     }
 

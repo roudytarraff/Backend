@@ -330,7 +330,7 @@ public sealed class EventOrganizerController : ControllerBase
         {
             await _push.SendToEventAsync(
                 eventId,
-                "TripMate event update",
+                "TripConnect event update",
                 NotificationBody(reason),
                 new Dictionary<string, string>
                 {

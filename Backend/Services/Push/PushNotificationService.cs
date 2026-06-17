@@ -170,8 +170,8 @@ public sealed class PushNotificationService
             }
 
             var appName = string.IsNullOrWhiteSpace(_options.ProjectId)
-                ? "tripmate-push"
-                : $"tripmate-push-{_options.ProjectId}";
+                ? "tripconnect-push"
+                : $"tripconnect-push-{_options.ProjectId}";
             FirebaseApp? app = null;
             try
             {

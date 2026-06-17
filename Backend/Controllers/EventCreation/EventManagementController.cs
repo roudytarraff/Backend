@@ -208,7 +208,7 @@ public sealed class EventManagementController : ControllerBase
             .FirstOrDefaultAsync(ct);
         if (ev is null) return NotFound("Event not found.");
 
-        var deepLink = $"tripmate://guest/events/{eventId}";
+        var deepLink = $"tripconnect://guest/events/{eventId}";
         var apiLink = $"/api/events/guest/{eventId}";
         var title = System.Net.WebUtility.HtmlEncode(ev.Title);
         var destination = System.Net.WebUtility.HtmlEncode(ev.DestinationName);
@@ -219,9 +219,9 @@ public sealed class EventManagementController : ControllerBase
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{title}} - TripMate</title>
+  <title>{{title}} - TripConnect</title>
   <meta property="og:title" content="{{title}}" />
-  <meta property="og:description" content="Preview this TripMate event in the app." />
+  <meta property="og:description" content="Preview this TripConnect event in the app." />
   <meta property="og:image" content="{{image}}" />
   <style>
     body{margin:0;font-family:Inter,Arial,sans-serif;background:#0e1324;color:#fff;min-height:100vh;display:grid;place-items:center}
@@ -243,8 +243,8 @@ public sealed class EventManagementController : ControllerBase
     </section>
     <section class="body">
       <div class="dest">{{destination}}</div>
-      <a href="{{deepLink}}">Open in TripMate</a>
-      <p class="small">If TripMate is not installed, install it first, then open this link again. Public preview data is available at <code>{{apiLink}}</code>.</p>
+      <a href="{{deepLink}}">Open in TripConnect</a>
+      <p class="small">If TripConnect is not installed, install it first, then open this link again. Public preview data is available at <code>{{apiLink}}</code>.</p>
     </section>
   </main>
 </body>

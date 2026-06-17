@@ -278,7 +278,7 @@ public sealed class AuthModule
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(from));
         message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = "TripMate Password Reset";
+        message.Subject = "TripConnect Password Reset";
 
         message.Body = new TextPart("plain")
         {

@@ -693,7 +693,7 @@ public sealed class OrganizerWorkspaceController : ControllerBase
         {
             await _push.SendToEventAsync(
                 eventId,
-                "TripMate schedule update",
+                "TripConnect schedule update",
                 ActivityNotificationBody(reason, activity.Title),
                 new Dictionary<string, string>
                 {
@@ -717,7 +717,7 @@ public sealed class OrganizerWorkspaceController : ControllerBase
 
         await _push.SendToEventAsync(
             eventId,
-            "TripMate event update",
+            "TripConnect event update",
             DetailsNotificationBody(reason),
             new Dictionary<string, string>
             {

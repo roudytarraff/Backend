@@ -1,4 +1,4 @@
-# TripMate Backend Production Credentials Setup
+# TripConnect Backend Production Credentials Setup
 
 The backend is prepared so production setup only needs Azure/App Store/Google/Firebase/LiveKit credentials.
 
@@ -122,14 +122,14 @@ For development/testing without real store validation:
 
 ```text
 Billing__RequireStoreValidation=false
-Billing__PlusProductId=tripmate_plus_monthly
+Billing__PlusProductId=tripconnect_plus_monthly
 ```
 
 For production:
 
 ```text
 Billing__RequireStoreValidation=true
-Billing__PlusProductId=tripmate_plus_monthly
+Billing__PlusProductId=tripconnect_plus_monthly
 ```
 
 ### Google Play validation
@@ -166,7 +166,7 @@ App Store Connect:
 1. Create In-App Purchase subscription product:
 
 ```text
-tripmate_plus_monthly
+tripconnect_plus_monthly
 ```
 
 2. Create App Store Connect API key with access to In-App Purchase / App Store Server API.

@@ -98,14 +98,14 @@ public sealed class StorePurchaseValidationService
         using var service = new AndroidPublisherService(new BaseClientService.Initializer
         {
             HttpClientInitializer = credential,
-            ApplicationName = "TripMate"
+            ApplicationName = "TripConnect"
         });
 
         var purchase = await service.Purchases.Subscriptionsv2.Get(packageName, token).ExecuteAsync(ct);
         var line = purchase.LineItems?.FirstOrDefault(item =>
             string.Equals(item.ProductId, expectedProductId, StringComparison.Ordinal));
 
-        Guard.Ensure(line is not null, "Google Play product does not match TripMate Plus.");
+        Guard.Ensure(line is not null, "Google Play product does not match TripConnect Plus.");
         Guard.Ensure(purchase.SubscriptionState is "SUBSCRIPTION_STATE_ACTIVE" or "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
             "Google Play subscription is not active.");
 
@@ -140,7 +140,7 @@ public sealed class StorePurchaseValidationService
             ? originalElement.GetString()
             : transactionId;
 
-        Guard.Ensure(productId == expectedProductId, "Apple product does not match TripMate Plus.");
+        Guard.Ensure(productId == expectedProductId, "Apple product does not match TripConnect Plus.");
         if (!string.IsNullOrWhiteSpace(_options.Apple.BundleId))
         {
             Guard.Ensure(bundleId == _options.Apple.BundleId.Trim(), "Apple bundle id does not match this app.");

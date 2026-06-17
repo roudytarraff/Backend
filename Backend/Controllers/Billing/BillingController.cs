@@ -15,11 +15,19 @@ public sealed class BillingController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PlanLimitService _plans;
+    private readonly StorePurchaseValidationService _storeValidation;
+    private readonly BillingStoreOptions _billingOptions;
 
-    public BillingController(AppDbContext db, PlanLimitService plans)
+    public BillingController(
+        AppDbContext db,
+        PlanLimitService plans,
+        StorePurchaseValidationService storeValidation,
+        Microsoft.Extensions.Options.IOptions<BillingStoreOptions> billingOptions)
     {
         _db = db;
         _plans = plans;
+        _storeValidation = storeValidation;
+        _billingOptions = billingOptions.Value;
     }
 
     [HttpGet("me")]
@@ -86,20 +94,17 @@ public sealed class BillingController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == userId.Value, ct);
         if (user is null) return Unauthorized();
 
-        var transactionId = !string.IsNullOrWhiteSpace(req.TransactionId)
-            ? req.TransactionId.Trim()
-            : !string.IsNullOrWhiteSpace(req.PurchaseToken)
-                ? req.PurchaseToken.Trim()
-                : Guid.NewGuid().ToString("N");
+        var validation = _billingOptions.RequireStoreValidation
+            ? await _storeValidation.ValidatePlusPurchase(req, ct)
+            : _storeValidation.CreateDevelopmentResult(req);
 
-        // The mobile stores still own the real subscription status. This unlocks the user
-        // after the native store reports success; proper server receipt validation can be
-        // added when App Store / Play service credentials are available.
+        if (validation is null) return BadRequest("Purchase could not be validated.");
+
         user.ActivatePlus(
-            req.Platform.Trim().ToLowerInvariant(),
-            req.ProductId.Trim(),
-            transactionId,
-            DateTime.UtcNow.AddMonths(1));
+            validation.Platform,
+            validation.ProductId,
+            validation.TransactionId,
+            validation.ExpiresAtUtc);
 
         await _db.SaveChangesAsync(ct);
 

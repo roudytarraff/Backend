@@ -45,6 +45,9 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddScoped<IBlobStorageService, AzureBlobStorageService>();
 builder.Services.AddScoped<PlanLimitService>();
+builder.Services.Configure<BillingStoreOptions>(builder.Configuration.GetSection("Billing"));
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<StorePurchaseValidationService>();
 builder.Services.Configure<LiveKitOptions>(builder.Configuration.GetSection("LiveKit"));
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.Configure<FirebasePushOptions>(builder.Configuration.GetSection("Firebase"));

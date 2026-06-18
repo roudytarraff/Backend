@@ -209,10 +209,14 @@ public sealed class EventManagementController : ControllerBase
         if (ev is null) return NotFound("Event not found.");
 
         var deepLink = $"tripconnect://guest/events/{eventId}";
+        var androidIntentLink = $"intent://guest/events/{eventId}#Intent;scheme=tripconnect;package=com.tripconnect.app;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.tripconnect.app;end";
         var apiLink = $"/api/events/guest/{eventId}";
         var title = System.Net.WebUtility.HtmlEncode(ev.Title);
         var destination = System.Net.WebUtility.HtmlEncode(ev.DestinationName);
         var image = System.Net.WebUtility.HtmlEncode(ev.ThumbnailUrl ?? "");
+        var deepLinkJs = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(deepLink);
+        var androidIntentLinkJs = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(androidIntentLink);
+        var androidIntentLinkHtml = System.Net.WebUtility.HtmlEncode(androidIntentLink);
         var html = $$"""
 <!doctype html>
 <html lang="en">
@@ -233,7 +237,11 @@ public sealed class EventManagementController : ControllerBase
     .small{margin-top:14px;color:#64748b;font-size:13px;line-height:1.5}
   </style>
   <script>
-    setTimeout(function(){ window.location.href = "{{deepLink}}"; }, 300);
+    function openTripConnect() {
+      var target = /Android/i.test(navigator.userAgent) ? "{{androidIntentLinkJs}}" : "{{deepLinkJs}}";
+      window.location.href = target;
+    }
+    setTimeout(openTripConnect, 300);
   </script>
 </head>
 <body>
@@ -243,7 +251,7 @@ public sealed class EventManagementController : ControllerBase
     </section>
     <section class="body">
       <div class="dest">{{destination}}</div>
-      <a href="{{deepLink}}">Open in TripConnect</a>
+      <a href="{{androidIntentLinkHtml}}" onclick="openTripConnect();return false;">Open in TripConnect</a>
       <p class="small">If TripConnect is not installed, install it first, then open this link again. Public preview data is available at <code>{{apiLink}}</code>.</p>
     </section>
   </main>

@@ -205,15 +205,6 @@ public sealed class AuthModule
         if (user.AccountStatus != Domain.AccountStatus.Active)
             throw new UnauthorizedException("Account is not active.");
 
-        tokenRow.Revoke();
-
-        var newRefreshPlain = GenerateSecureToken();
-        var newRefreshHash = Sha256(newRefreshPlain);
-        var newRefreshExpires = DateTime.UtcNow.AddDays(_jwt.RefreshDays);
-
-        var newRt = user.IssueRefreshToken(newRefreshHash, newRefreshExpires);
-        tokenRow.LinkReplacement(newRt.RefreshTokenId);
-
         var access = CreateAccessToken(user);
 
         await _db.SaveChangesAsync(ct);
@@ -222,9 +213,9 @@ public sealed class AuthModule
         {
             UserId = user.UserId,
             AccessToken = access.Token,
-            RefreshToken = newRefreshPlain,
+            RefreshToken = req.RefreshToken,
             AccessTokenExpiresAtUtc = access.ExpiresAtUtc,
-            RefreshTokenExpiresAtUtc = newRefreshExpires
+            RefreshTokenExpiresAtUtc = tokenRow.ExpiresAt
         };
     }
 

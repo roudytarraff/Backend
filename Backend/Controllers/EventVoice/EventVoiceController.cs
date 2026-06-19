@@ -144,8 +144,9 @@ public sealed class EventVoiceController : ControllerBase
         if (driver is Organizer) return BadRequest("Organizer drivers use the event voice channel.");
         if (driver.EventMemberId == organizer.EventMemberId) return BadRequest("You cannot call yourself as the driver.");
 
-        var callId = Guid.NewGuid();
+        var callId = req.CallId ?? Guid.NewGuid();
         PruneExpiredCalls();
+        RemoveExistingCalls(eventId, driver.EventMemberId, organizer.EventMemberId, req.ActivityId);
         ActiveDriverCalls[callId] = new DriverCallState(
             callId,
             eventId,
@@ -275,6 +276,10 @@ public sealed class EventVoiceController : ControllerBase
         if (req.CallId is not null)
         {
             ActiveDriverCalls.TryRemove(req.CallId.Value, out _);
+        }
+        else
+        {
+            RemoveExistingCalls(eventId, driver.EventMemberId, organizer.EventMemberId, req.ActivityId);
         }
 
         await _hubContext.Clients.Group($"event-{eventId}")
@@ -406,6 +411,21 @@ public sealed class EventVoiceController : ControllerBase
         foreach (var item in ActiveDriverCalls)
         {
             if (item.Value.RequestedAt < cutoff)
+            {
+                ActiveDriverCalls.TryRemove(item.Key, out _);
+            }
+        }
+    }
+
+    private static void RemoveExistingCalls(Guid eventId, Guid driverParticipantId, Guid requestedByMemberId, Guid? activityId)
+    {
+        foreach (var item in ActiveDriverCalls)
+        {
+            var call = item.Value;
+            if (call.EventId == eventId &&
+                call.DriverParticipantId == driverParticipantId &&
+                call.RequestedByMemberId == requestedByMemberId &&
+                call.ActivityId == activityId)
             {
                 ActiveDriverCalls.TryRemove(item.Key, out _);
             }

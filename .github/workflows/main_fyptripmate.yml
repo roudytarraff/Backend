@@ -32,11 +32,14 @@ jobs:
       - name: Publish backend
         run: dotnet publish Backend/Backend.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp" --no-build
 
+      - name: Zip published backend
+        run: Compress-Archive -Path "${{env.DOTNET_ROOT}}/myapp/*" -DestinationPath "${{ github.workspace }}/backend-app.zip" -Force
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          path: ${{ github.workspace }}/backend-app.zip
 
   deploy:
     runs-on: windows-latest
@@ -54,5 +57,5 @@ jobs:
         with:
           app-name: 'FYPTripMate'
           slot-name: 'Production'
-          package: .
+          package: backend-app.zip
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE || secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4BD25096AF9A4E768C968F18C81C32D5 }}

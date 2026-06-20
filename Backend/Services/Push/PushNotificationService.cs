@@ -102,6 +102,8 @@ public sealed class PushNotificationService
         if (hasBody) payload["body"] = body.Trim();
         payload.TryAdd("sentAt", DateTime.UtcNow.ToString("O"));
         payload.TryAdd("notificationId", NotificationId(payload, title, body));
+        var isDriverCall = payload.TryGetValue("type", out var payloadType) &&
+                           payloadType == "driver-call";
         var staleTokens = new List<string>();
 
         foreach (var token in tokens)
@@ -116,6 +118,8 @@ public sealed class PushNotificationService
                     Android = new AndroidConfig
                     {
                         Priority = Priority.High,
+                        TimeToLive = isDriverCall ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(10),
+                        CollapseKey = isDriverCall ? null : payload["notificationId"],
                         Notification = null
                     },
                     Apns = new ApnsConfig

@@ -19,7 +19,7 @@ namespace Backend.Controllers.EventVoice;
 public sealed class EventVoiceController : ControllerBase
 {
     private static readonly ConcurrentDictionary<Guid, DriverCallState> ActiveDriverCalls = new();
-    private static readonly TimeSpan DriverCallRingTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DriverCallRingTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DriverCallActiveTtl = TimeSpan.FromHours(3);
 
     private readonly AppDbContext _db;
@@ -262,6 +262,40 @@ public sealed class EventVoiceController : ControllerBase
             ct);
 
         return Ok();
+    }
+
+    [HttpPost("driver-call/status")]
+    public async Task<IActionResult> DriverCallStatus(Guid eventId, [FromBody] DriverCallResponse req, CancellationToken ct)
+    {
+        var userId = GetUserIdFromClaims();
+        if (userId is null) return Unauthorized();
+        if (req.CallId is null) return BadRequest("Call id is required.");
+
+        var member = await _db.EventMembers
+            .AsNoTracking()
+            .Where(m => m.EventId == eventId && m.UserId == userId.Value && m.Status == MembershipStatus.Active)
+            .Select(m => new { m.EventMemberId })
+            .FirstOrDefaultAsync(ct);
+
+        if (member is null) return Forbid();
+
+        PruneExpiredCalls();
+        if (!ActiveDriverCalls.TryGetValue(req.CallId.Value, out var call) ||
+            call.EventId != eventId ||
+            call.DriverParticipantId != req.DriverParticipantId ||
+            call.ActivityId != req.ActivityId ||
+            (member.EventMemberId != call.DriverParticipantId && member.EventMemberId != call.RequestedByMemberId))
+        {
+            return Ok(new { status = "ended" });
+        }
+
+        return Ok(new
+        {
+            status = call.AcceptedAt is null ? "pending" : "accepted",
+            accepted = call.AcceptedAt is not null,
+            callId = call.CallId,
+            expiresAt = call.RequestedAt.Add(DriverCallRingTtl)
+        });
     }
 
     [HttpPost("driver-call/cancel")]

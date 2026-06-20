@@ -19,7 +19,8 @@ namespace Backend.Controllers.EventVoice;
 public sealed class EventVoiceController : ControllerBase
 {
     private static readonly ConcurrentDictionary<Guid, DriverCallState> ActiveDriverCalls = new();
-    private static readonly TimeSpan DriverCallTtl = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan DriverCallRingTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DriverCallActiveTtl = TimeSpan.FromHours(3);
 
     private readonly AppDbContext _db;
     private readonly IHubContext<Hubs.EventHub> _hubContext;
@@ -147,13 +148,15 @@ public sealed class EventVoiceController : ControllerBase
         var callId = req.CallId ?? Guid.NewGuid();
         PruneExpiredCalls();
         RemoveExistingCalls(eventId, driver.EventMemberId, organizer.EventMemberId, req.ActivityId);
+        var requestedAt = DateTime.UtcNow;
+        var expiresAt = requestedAt.Add(DriverCallRingTtl);
         ActiveDriverCalls[callId] = new DriverCallState(
             callId,
             eventId,
             req.ActivityId,
             driver.EventMemberId,
             organizer.EventMemberId,
-            DateTime.UtcNow);
+            requestedAt);
 
         await _hubContext.Clients.Group($"event-{eventId}")
             .SendAsync("DriverCallRequested", new
@@ -163,7 +166,8 @@ public sealed class EventVoiceController : ControllerBase
                 CallId = callId,
                 DriverParticipantId = driver.EventMemberId,
                 RequestedByMemberId = organizer.EventMemberId,
-                RequestedAt = DateTime.UtcNow
+                RequestedAt = requestedAt,
+                ExpiresAt = expiresAt
             }, ct);
 
         await _push.SendToEventMembersAsync(
@@ -178,7 +182,8 @@ public sealed class EventVoiceController : ControllerBase
                 ["activityId"] = req.ActivityId?.ToString() ?? "",
                 ["callId"] = callId.ToString(),
                 ["driverParticipantId"] = driver.EventMemberId.ToString(),
-                ["title"] = ev.Title
+                ["title"] = ev.Title,
+                ["expiresAt"] = expiresAt.ToString("O")
             },
             ct);
 
@@ -211,6 +216,11 @@ public sealed class EventVoiceController : ControllerBase
             call.ActivityId != req.ActivityId)
         {
             return BadRequest("This driver call is no longer active.");
+        }
+        if (call.AcceptedAt is null && DateTime.UtcNow - call.RequestedAt > DriverCallRingTtl)
+        {
+            ActiveDriverCalls.TryRemove(req.CallId.Value, out _);
+            return BadRequest("This driver call has expired.");
         }
 
         if (req.Accepted)
@@ -368,7 +378,7 @@ public sealed class EventVoiceController : ControllerBase
             .FirstOrDefaultAsync(ct);
 
         var displayName = user is null ? "Event member" : $"{user.FirstName} {user.LastName}".Trim();
-        var roomName = $"event-{eventId}-driver-{driver.EventMemberId}";
+        var roomName = $"event-{eventId}-driver-{driver.EventMemberId}-{req.CallId}";
         var identity = $"{eventId}:driver-call:{req.CallId}:{caller.EventMemberId}:{driver.EventMemberId}";
         var token = _liveKit.CreateJoinToken(roomName, identity, displayName, new
         {
@@ -407,10 +417,13 @@ public sealed class EventVoiceController : ControllerBase
 
     private static void PruneExpiredCalls()
     {
-        var cutoff = DateTime.UtcNow - DriverCallTtl;
+        var now = DateTime.UtcNow;
         foreach (var item in ActiveDriverCalls)
         {
-            if (item.Value.RequestedAt < cutoff)
+            var call = item.Value;
+            var age = now - (call.AcceptedAt ?? call.RequestedAt);
+            if ((call.AcceptedAt is null && age > DriverCallRingTtl) ||
+                (call.AcceptedAt is not null && age > DriverCallActiveTtl))
             {
                 ActiveDriverCalls.TryRemove(item.Key, out _);
             }

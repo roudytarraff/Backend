@@ -39,8 +39,7 @@ public sealed class DevicePushTokenController : ControllerBase
         }
         else
         {
-            existing.Deactivate();
-            _db.DevicePushTokens.Add(new DevicePushToken(userId.Value, token, req.Platform, req.DeviceId));
+            existing.AssignTo(userId.Value, req.Platform, req.DeviceId);
         }
 
         await _db.SaveChangesAsync(ct);

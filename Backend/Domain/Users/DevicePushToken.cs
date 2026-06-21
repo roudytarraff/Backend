@@ -33,6 +33,12 @@ public sealed class DevicePushToken
         IsActive = true;
     }
 
+    public void AssignTo(Guid userId, string platform, string? deviceId)
+    {
+        UserId = userId;
+        Refresh(platform, deviceId);
+    }
+
     public void Deactivate()
     {
         LastSeenAtUtc = DateTime.UtcNow;
